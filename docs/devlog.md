@@ -270,3 +270,16 @@
   - `README.md`, `CONTRIBUTING.md`, `docs/*`: Upgraded README with screenshots (`docs/images/`), copyright notice, AI disclosure, controls, and bug-reporting guide; standardized all `docs/*.md` to English.
 - **Verification:**
   - `python tools/build_fork.py`, `python -m installer.gui --selftest`, `python tools/check_content.py`, and GitHub Actions release builds (`v0.1.3`, `v0.1.4`) all passed cleanly.
+
+
+### 2026-11-24 — `v0.1.5`–`v0.1.6`: Gate F5 Zero-Validation, AMD Compatibility, HDR10 Calibration & Draggable Sliders
+- **Changes:**
+  - `runtime/gfx_shader.c`, `runtime/vk_exec_draw.c` (`v0.1.5`): Added `ensure_storage_caps` (`StorageImageReadWithoutFormat` / `StorageImageWriteWithoutFormat`) and storage-image format reinterpretation (`R32_UINT`/`R32_SINT` -> `R32_SFLOAT`), closing Gate F5 (`0` validation errors / `0` warnings on NVIDIA).
+  - `runtime/vk.{h}`, `runtime/vk_device.c`, `runtime/vk_exec_draw.c`, `runtime/vk_pipeline.c`: Added `has_gs_passthrough` detection, skipped `ShaderViewportMaskNV` (`5255`) / `BuiltIn ViewportMaskNV` (`5253`) on devices lacking `VK_NV_viewport_array2`, and implemented `lower_gs_passthrough()` (plus multi-struct `CullDistance` stripping in `spirv_fixup()`) to convert `GeometryShaderPassthroughNV` (`5251`) `gl_Layer` shaders into standard Vulkan Geometry Shaders forwarding `Location 0` — fixing the AMD match-entry crash and the 3D light-blue atmosphere wash.
+  - `runtime/ui/menu.cpp`: Auto-disabled `MTF_DLAA` / DLSS rows when `!vk_dlaa_supported()`; locked `MTF_RENDER_SCALE` to `100` and `MTF_UPSCALER` to `bilinear` (disabling `MTF_SHARPNESS` alongside SDR color controls) when `HDR` is active.
+  - `runtime/vk_pipeline.c`: Added a console log message in `vk_pipeline_prewarm()` when compiling queued pipelines on first launch or GPU/driver change.
+  - `runtime/shaders/hdr_compose.comp`, `runtime/hdr_compose_spv.h`, `runtime/vk_hdr.c`: Removed `lift_shadows()` over-brightening, set `knee(0.97f)` with a `2.0x` peak-to-paper-white roll-off cap, and removed the fragile `1.5/255` pixel-match check so `Game Brightness` and `Display Peak Nits` apply reliably live during 3D gameplay.
+  - `runtime/ui/option_rows.cpp`: Replaced `opt_slider` `< value >` steppers with draggable `ImGui::SliderFloat` bars (supporting `Ctrl+Click` keyboard numeric entry).
+  - `README.md`, `docs/port-status.md`, `docs/status-details.md`: Added realistic percentage-based status summary (`SavageWindRecomp` style) and dedicated `status-details.md` breakdown.
+- **Verification:**
+  - `python tools/build_fork.py`, `MTF_GPU_INDEX=1` + `MTF_VK_VALIDATION=1` boot smoke test (`FATAL: 0`), user-verified in-match AMD boot/colors and live HDR sliders on NVIDIA, and `python tools/check_content.py` (`exit 0`).

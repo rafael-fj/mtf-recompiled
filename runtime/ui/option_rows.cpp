@@ -122,6 +122,7 @@ static int row_text(const char *key, const char *label, const char *desc, const 
     // top (negative y), so the page grew a pixel per row scrolled out and a row scrolled to the bottom was cut off
     float fs = ImGui::GetFontSize(), w = ImGui::GetContentRegionAvail().x, h = floorf(fs * 2.2f);
     ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));   // the row's own border shows the selection
+    ImGui::SetNextItemAllowOverlap();
     bool clicked = ImGui::InvisibleButton("##row", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
     ImGui::PopStyleColor();
     bool to_key = g_focus_key[0] && !strcmp(key, g_focus_key);
@@ -377,14 +378,44 @@ bool opt_slider(const char *key, UiTextId label, float lo, float hi, UiTextId de
     // follows the fallback's default, not 0, even once the key is set.
     if (fallback && m && !m->def[0]) m = cfg_meta(fallback);
     double v = cfg_double(src), def = m && m->def[0] ? strtod(m->def, NULL) : lo;
-    char shown[48];
-    snprintf(shown, sizeof shown, fmt, v);
-    RowView rv = {shown, fabs(v - def) < step * 0.01, true, note};
+    RowView rv = {"", fabs(v - def) < step * 0.01, false, note};
     int s = row(key, label, desc, rv);
-    if (!s) return false;
+    bool locked = cfg_from_env(key) != 0;
+    ImVec2 rmin = ImGui::GetItemRectMin(), rmax = ImGui::GetItemRectMax(), cur = ImGui::GetCursorScreenPos();
+    float fs = ImGui::GetFontSize(), pad = 16 * g_scale, sw = fs * 10.5f;
+    float sy = rmin.y + fs * 0.22f;
+    ImGui::SetCursorScreenPos(ImVec2(rmax.x - pad - sw, sy));
+    ImGui::PushID(key);
+    ImGui::BeginDisabled(locked);
+    ImGui::PushItemWidth(sw);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.12f, 0.12f, 0.14f, 0.90f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.20f, 0.20f, 0.24f, 0.95f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.25f, 0.22f, 0.14f, 0.95f));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4(0.92f, 0.76f, 0.33f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4(1.0f, 0.85f, 0.42f, 1.0f));
+    float fv = (float)v;
+    bool slid = ImGui::SliderFloat("##s", &fv, lo, hi, fmt);
+    ImGui::PopStyleColor(5);
+    ImGui::PopItemWidth();
+    ImGui::EndDisabled();
+    ImGui::PopID();
+    ImGui::SetCursorScreenPos(cur);
+    if (slid && !locked) {
+        double n = fv < lo ? lo : fv > hi ? hi : (double)fv;
+        if (step >= 1) n = round(n);
+        else n = round(n / step) * step;
+        n = n < lo ? lo : n > hi ? hi : n;
+        if (fabs(n - v) >= step * 0.005) {
+            char out[32];
+            if (step >= 1) snprintf(out, sizeof out, "%d", (int)lround(n));
+            else snprintf(out, sizeof out, "%g", n);
+            apply(key, fallback && fabs(n - cfg_double(fallback)) < step * 0.01 ? "" : out);
+            return true;
+        }
+    }
+    if (!s || s == 2) return false;
     int steps = g_held && (hi - lo) > 40 * step ? 10 : 1;   // held: ten steps at a time over a long range
-    double n = round(v / step) * step + (s == 2 ? step : s * step * steps);
-    if (s == 2 && n > hi + step * 0.01) n = lo;   // A / click past the top goes round; left / right stop at the ends
+    double n = round(v / step) * step + s * step * steps;
     n = n < lo ? lo : n > hi ? hi : n;
     if (fabs(n - v) < step * 0.01) return false;
     char out[32];

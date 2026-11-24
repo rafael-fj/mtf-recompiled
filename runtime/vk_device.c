@@ -336,8 +336,8 @@ static int create_device(void) {
     }
     vk_dlaa_device_exts(ep, ne, ext, &n_ext, 40);   // NGX's; the eight slots after it stay for the eight below
     // MTF's layer-picking geometry shaders are NV passthrough ones (GeometryShaderPassthroughNV)
-    if (has_ext(ep, ne, VK_NV_GEOMETRY_SHADER_PASSTHROUGH_EXTENSION_NAME)) ext[n_ext++] = VK_NV_GEOMETRY_SHADER_PASSTHROUGH_EXTENSION_NAME;
-    else rt_log("vk: no VK_NV_geometry_shader_passthrough: passthrough geometry shaders will not build");
+    if (has_ext(ep, ne, VK_NV_GEOMETRY_SHADER_PASSTHROUGH_EXTENSION_NAME)) g_vk.has_gs_passthrough = 1, ext[n_ext++] = VK_NV_GEOMETRY_SHADER_PASSTHROUGH_EXTENSION_NAME;
+    else rt_log("vk: no VK_NV_geometry_shader_passthrough: layer passthrough geometry shaders will be lowered");
     // the shadow casters' broadcast to the cascades, one viewport and layer each (ViewportMaskNV)
     if (has_ext(ep, ne, "VK_NV_viewport_array2")) g_vk.has_viewport_array2 = 1, ext[n_ext++] = "VK_NV_viewport_array2";
     else rt_log("vk: no VK_NV_viewport_array2: shadow cascades past the first stay empty");

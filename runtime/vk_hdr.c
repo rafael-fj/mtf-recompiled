@@ -381,7 +381,7 @@ static int init(VkCtx *c) {
         rt_log("hdr: the present passes could not be created; the picture goes out unconverted");
         return 0;
     }
-    knee(0.90f);
+    knee(0.97f);
     rt_log("hdr: the scene's curve leaves ACES at %.3f (input %.3f, slope %.3f)", H.yk, H.vk, H.slope);
     return H.ok = 1;
 }
@@ -446,7 +446,7 @@ VkImage vk_hdr_encode(VkCommandBuffer cb, unsigned slot, VkImage src, VkFormat f
         rec_push(H.push, cb, VK_PIPELINE_BIND_POINT_COMPUTE, H.comp_layout, 0, 4, w);
         struct { int32_t offset[2], size[2]; float n[4], k[4]; } pc = {
             {crop[0], crop[1]}, {crop[2], crop[3]}, {n.ui, n.game, n.peak, exposure},
-            {H.vk, H.yk, H.slope, fmaxf(n.peak / n.game, H.yk + 0.01f)}};
+            {H.vk, H.yk, H.slope, fminf(fmaxf(n.peak / n.game, H.yk + 0.01f), 2.0f)}};
         vkCmdPushConstants(cb, H.comp_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof pc, &pc);
     } else {
         VkDescriptorImageInfo ii = {H.sampler, H.views[slot][0], VK_IMAGE_LAYOUT_GENERAL};

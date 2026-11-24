@@ -1,8 +1,8 @@
 # MTF Recomp — Port Status
 
-**Last updated:** 2026-11-23  
+**Last updated:** 2026-11-24  
 **Target game:** *Mario Tennis Fever* (Switch 2 / `Ounce`, Title ID `0400D4201C6EA000`, Update `1.1.1` / `v327680`)  
-**Current phase:** `v0.1.4` Release Ready — Playable PC Port + Frame Gen + Input Remapping + `F1 -> Multiplayer` (WebRTC / Cloudflare / Local Host + Stream Quality Presets) + `F1 -> Cheats` + RecompLauncher SDK (`recomplauncher.json`) + GUI Installer (`MTF-Recomp-Setup.exe`)
+**Current phase:** `v0.1.6` — Playable PC Port (NVIDIA 96% / AMD 82%) + Portable `GeometryShaderPassthroughNV` Lowering + Fixed HDR10 Calibration & Draggable Sliders + Self-Contained Windows Installer + RecompLauncher SDK (`recomplauncher.json`). See [status-details.md](status-details.md) for the full percentage breakdown.
 
 ## Module Status
 
@@ -20,8 +20,8 @@
 | ARM64 Lifter (`recomp/`) | **Ready** | 0 unsupported on `main`+`sdk`, 1 `ldst` on `nro0`; 119,955 Unicorn diff cases passed |
 | Binary Index (`tools/analisis/bindb.py`) | **Ready** | `build/bindb.sqlite` indexes 98,560 fns, 29,422 syms, 573,750 calls, 54,969 strings |
 | Horizon Kernel & `ro::LoadModule` | **Ready** | Boots `main` + `sdk` + `nro0` cleanly to gameplay |
-| NVN2 Front-End & Vulkan Backend | **Ready (F5+F7 Active)** | Vulkan 1.3 renderer, `spirv_rewrite_inputs` ordering fix (`6abc64f`), `VkPipelineCache` enabled, optical-flow Frame Gen, FSR 1, DLAA/DLSS, HDR10, `Alt+F4` window close |
-| Shader Pipeline (`CRA.` → SPIR-V) | **Ready (F4+F5)** | **35,045 / 35,045** shaders translated to SPIR-V (0 failed); `nvn2_offline_get` loads offline `.spv` + `.res.json` |
+| NVN2 Front-End & Vulkan Backend | **Playable (NV 96% / AMD 82%)** | Vulkan 1.3 renderer, Gate F5 (`0` validation errors on NVIDIA), portable `GeometryShaderPassthroughNV` -> standard GS lowering (`Location 0` + `CullDistance`), DLAA/DLSS auto-disabled when unsupported, HDR10 (`hdr_compose.comp` + `Render Scale 100%`/`Bilinear` locks), optical-flow Frame Gen, FSR 1; A/B/Y ball-trail interior still missing on AMD RDNA 2 (`24.30.66`) |
+| Shader Pipeline (`CRA.` → SPIR-V) | **Ready (F4+F5)** | **35,045 / 35,045** shaders translated to SPIR-V (0 failed); `ensure_storage_caps` injects `StorageImageRead/WriteWithoutFormat`; `nvn2_offline_get` loads offline `.spv` + `.res.json` |
 | Audio (`audren` REV15) & Video (`ov_codec`) | **Ready (F3)** | REV15 `audren` + SDL3 (`48000 Hz x240`, 96 voices) & `libvpx` VP9 (`2560x1440`) active |
 | Multiplayer & Browser Streaming (`F1 -> Multiplayer`) | **Ready** | Local `P1..P4` input routing + WebRTC UDP DataChannel / Cloudflare Tunnel / Local Host browser streaming (VP8 + Opus), automatic WebSocket fallback, `Performance`/`Balanced`/`Quality` presets, 3s player connect/disconnect toasts |
 | Installer, RecompLauncher & Updates | **Ready** | GitHub Actions `--onedir` release build, `recomplauncher.json` (Levels 1–3) + `--prepare`, in-game GitHub release notifier (`UPDATE_NOTIFIED_TAG` + `F1` reminder) |
