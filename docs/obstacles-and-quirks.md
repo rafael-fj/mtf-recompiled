@@ -230,3 +230,14 @@ This catalog tracks every *Mario Tennis Fever*-specific technical obstacle using
 - **Root Cause:** In `runtime/vk_exec_draw.c`, temporary `static` arrays (`rs_list`, `bind_resources`), `wait_frame`/`wait_left_ns`, and `vk_dlaa_draw` / `mvobj_draw` calls were shared globally across the 6 slice worker threads, causing concurrent descriptor corruption.
 - **Fix:** Moved `rs_tmp`, `bind_w`, `bind_d`, `bind_bv`, `wait_frame`, and `wait_left_ns` into per-thread `DrawCtx`; moved `vk_dlaa_draw` to collection order (`par_take`) and gated `vk_dlaa_draw`/`mvobj_draw` inside `prepare_draw`/`op_draw_idx` on `!ex->draw`.
 - **Verification:** Clean rebuild (`0` errors), boot smoke test (`alive=True`), `python tools/check_content.py` (`0` violations), and audited `DC` (`_Thread_local`), `cache_lock`, `oq_outside`, `repeat_stats`, and `count_quiet`.
+
+
+## 30. AMD RDNA 2 Match-Entry Crash, Light-Blue Wash & Remaining Ball-Trail Quirk
+- **Symptom:** On AMD (`amdvlk64.dll 24.30.66`), entering a match crashed (`GeometryShaderPassthroughNV` / `ViewportMaskNV` unsupported). Skipping all `5251` geometry shaders prevented the crash but left the `8x8x64` atmosphere LUT unpopulated (light-blue wash over 3D scenes).
+- **Fix:** `runtime/vk_pipeline.c` (`lower_gs_passthrough`) lowers `GeometryShaderPassthroughNV` (`5251`) `gl_Layer` shaders to standard Vulkan Geometry Shaders (forwarding `Location 0`), and `spirv_fixup` strips excess `CullDistance` from both `gl_PerVertex` blocks. Only `ViewportMaskNV` (`5253`/`5255`) is skipped when `!has_viewport_array2`.
+- **Remaining Quirk:** On AMD RDNA 2 (`24.30.66`), A/B/Y shot ball trails render only their outer edges despite identical shaders/textures (`pass 0017`/`0019` vs NVIDIA `pass 0081`) and passing `MTF_PIPE_SKIP=0`, `MTF_MEMORY=mirror`, `MTF_FEEDBACK=restart`, `MTF_ASTC_BC=0`, `MTF_NO_EDS3=1`, and `MTF_NAN_GUARD=mark`.
+
+## 31. HDR10 Over-Exposure & Unresponsive `Game Brightness` Slider
+- **Symptom:** With `HDR=1`, sunlit court grass clipped brightly and dragging `Game Brightness` (`HDR_PAPER_WHITE`) / `Display Peak Nits` (`HDR_PEAK_NITS`) produced no visible change when the window was smaller than `1080p` or used `FSR`.
+- **Root Cause:** `hdr_compose.comp` previously gated scene HDR on `abs(srgb_encode(sdr) - w) <= 1.5/255` (falling back to `UI Brightness` whenever window scaling/upscaling altered `w`) and applied `lift_shadows()` (`pow(l, 0.82)`) + an early `knee(0.90f)`.
+- **Fix:** Removed `lift_shadows()` and the fragile `1.5/255` match gate in `runtime/shaders/hdr_compose.comp` (`hdr_compose_spv.h`), raised the knee to `0.97f` with a `2.0x` headroom cap in `runtime/vk_hdr.c`, and locked `Render Scale = 100%` + `Upscaler = Bilinear` in `runtime/ui/menu.cpp` while `HDR` is active.

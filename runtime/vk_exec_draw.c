@@ -2385,7 +2385,33 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     if (mid & MID_GS) {
         int has_gs = 0;
         const GfxShader *gs = shader_for(ex, NVN_STAGE_GS, &has_gs, NULL, 1);
-        s.gs = has_gs && gs && geometry_on() ? gs : NULL;
+        if (has_gs && gs && geometry_on()) {
+            const VkCtx *vc = vk_ctx();
+            if (!vc->has_viewport_array2) {
+                uint64_t nw = 0;
+                const uint32_t *w = gfx_shader_spirv(gs, &nw);
+                int bad = 0;
+                for (uint64_t i = 5; w && i < nw;) {
+                    uint32_t op = w[i] & 0xffff, len = w[i] >> 16;
+                    if (!len || i + len > nw) break;
+                    if ((op == 17 && len == 2 && w[i + 1] == 5255) ||
+                        (op == 71 && len >= 4 && w[i + 2] == 11 && w[i + 3] == 5253)) {
+                        bad = 1;
+                        break;
+                    }
+                    i += len;
+                }
+                if (bad) {
+                    static volatile int32_t logged;
+                    if (plat_inc32(&logged) <= 4)
+                        rt_log("vk_exec: skipping NV viewport-mask geometry shader (device lacks extension)");
+                    gs = NULL;
+                }
+            }
+            s.gs = gs;
+        } else {
+            s.gs = NULL;
+        }
     } else {
         s.gs = NULL;
     }

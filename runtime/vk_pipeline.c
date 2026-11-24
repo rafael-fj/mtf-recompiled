@@ -969,7 +969,9 @@ static uint32_t *spirv_fixup(const uint32_t *w, uint64_t n, uint64_t *out_n) {
              *pointee = calloc(bound, sizeof *pointee), *var_type = calloc(bound, sizeof *var_type);
     uint32_t *o = NULL;
     int interlock_used = 0, interlock_declared = 0, cull_ok = 0, ssign_hits = 0;
-    uint32_t cull_struct = 0, cull_member = 0, clip_member = ~0u, members = 0, member_types[8] = {0};
+    uint32_t cull_structs[4] = {0}, cull_members[4] = {0}, clip_members[4] = {~0u, ~0u, ~0u, ~0u};
+    uint32_t struct_members[4] = {0}, struct_mtypes[4][8] = {{0}};
+    int n_cull_st = 0;
     uint32_t glsl_id = 0, int32_t = 0, int32_one = 0, int32_neg1 = 0;
     if (!val || !elem || !len || !pointee || !var_type) goto out;
     for (uint64_t i = 5; i < n;) {
@@ -994,24 +996,47 @@ static uint32_t *spirv_fixup(const uint32_t *w, uint64_t n, uint64_t *out_n) {
         else if (op == OP_TYPE_ARRAY && l >= 4 && a[0] < bound) elem[a[0]] = a[1], len[a[0]] = a[2] < bound ? val[a[2]] : 0;
         else if (op == SPV_OP_TYPE_POINTER && l >= 4 && a[0] < bound) pointee[a[0]] = a[2];
         else if (op == SPV_OP_VARIABLE && l >= 4 && a[1] < bound) var_type[a[1]] = a[0] < bound ? pointee[a[0]] : 0;
-        else if (op == OP_MEMBER_DECORATE && l >= 5 && a[2] == SPV_DEC_BUILTIN && a[3] == BUILTIN_CULL) cull_struct = a[0], cull_member = a[1];
-        else if (op == OP_MEMBER_DECORATE && l >= 5 && a[2] == SPV_DEC_BUILTIN && a[3] == BUILTIN_CLIP) clip_member = a[1];
-        else if (op == OP_TYPE_STRUCT && cull_struct && a[0] == cull_struct && l >= 2) {
-            members = l - 2;
-            for (uint32_t m = 0; m < members && m < 8; m++) member_types[m] = a[1 + m];
-        } else if ((op == OP_ACCESS_CHAIN || op == OP_IN_BOUNDS_ACCESS_CHAIN) && l >= 5 && cull_struct && a[2] < bound) {
-            uint32_t t = var_type[a[2]], k = 3;
-            if (t < bound && t && elem[t] == cull_struct) k = 4;   // arrayed per-vertex block
-            if ((t == cull_struct || k == 4) && k + 1 < l && a[k] < bound && val[a[k]] == cull_member) cull_struct = 0;
+        else if (op == OP_MEMBER_DECORATE && l >= 5 && a[2] == SPV_DEC_BUILTIN && a[3] == BUILTIN_CULL) {
+            int idx = -1;
+            for (int k = 0; k < n_cull_st; k++) if (cull_structs[k] == a[0]) { idx = k; break; }
+            if (idx < 0 && n_cull_st < 4) { idx = n_cull_st++; cull_structs[idx] = a[0]; }
+            if (idx >= 0) cull_members[idx] = a[1];
+        } else if (op == OP_MEMBER_DECORATE && l >= 5 && a[2] == SPV_DEC_BUILTIN && a[3] == BUILTIN_CLIP) {
+            int idx = -1;
+            for (int k = 0; k < n_cull_st; k++) if (cull_structs[k] == a[0]) { idx = k; break; }
+            if (idx < 0 && n_cull_st < 4) { idx = n_cull_st++; cull_structs[idx] = a[0]; }
+            if (idx >= 0) clip_members[idx] = a[1];
+        } else if (op == OP_TYPE_STRUCT && l >= 2) {
+            for (int k = 0; k < n_cull_st; k++) {
+                if (a[0] == cull_structs[k]) {
+                    struct_members[k] = l - 2;
+                    for (uint32_t m = 0; m < struct_members[k] && m < 8; m++) struct_mtypes[k][m] = a[1 + m];
+                }
+            }
+        } else if ((op == OP_ACCESS_CHAIN || op == OP_IN_BOUNDS_ACCESS_CHAIN) && l >= 5 && a[2] < bound) {
+            uint32_t t = var_type[a[2]];
+            for (int k = 0; k < n_cull_st; k++) {
+                if (!cull_structs[k]) continue;
+                uint32_t idx = 3;
+                if (t < bound && t && elem[t] == cull_structs[k]) idx = 4;
+                if ((t == cull_structs[k] || idx == 4) && idx + 1 < l && a[idx] < bound && val[a[idx]] == cull_members[k])
+                    cull_structs[k] = 0;
+            }
         }
         i += l;
     }
     VkCtx *c = vk_ctx();
     uint32_t limit = c ? c->props.limits.maxCombinedClipAndCullDistances : 8;
-    if (cull_struct && members && members <= 8 && cull_member == members - 1 && clip_member < members) {
-        uint32_t clip_t = member_types[clip_member], cull_t = member_types[cull_member];
+    for (int k = 0; k < n_cull_st; k++) {
+        if (!cull_structs[k] || !struct_members[k] || struct_members[k] > 8 ||
+            cull_members[k] != struct_members[k] - 1 || clip_members[k] >= struct_members[k]) {
+            cull_structs[k] = 0;
+            continue;
+        }
+        uint32_t clip_t = struct_mtypes[k][clip_members[k]], cull_t = struct_mtypes[k][cull_members[k]];
         uint32_t clip_n = clip_t < bound ? len[clip_t] : 0, cull_n = cull_t < bound ? len[cull_t] : 0;
-        cull_ok = clip_n + cull_n > limit && clip_n <= limit;
+        if (clip_n + cull_n > limit && clip_n <= limit) cull_ok = 1;
+        else cull_structs[k] = 0;
     }
     int strip = interlock_declared && !interlock_used;
     if (!strip && !cull_ok && !ssign_hits) goto out;
@@ -1039,14 +1064,20 @@ static uint32_t *spirv_fixup(const uint32_t *w, uint64_t n, uint64_t *out_n) {
             i += l;
             continue;
         }
-        int drop = 0;
+        int drop = 0, shrink = 0;
         if (strip && op == OP_CAPABILITY && (a[0] == CAP_PIXEL_INTERLOCK || a[0] == CAP_SAMPLE_INTERLOCK || a[0] == CAP_RATE_INTERLOCK)) drop = 1;
         if (strip && op == OP_EXTENSION && l >= 2 && !strncmp((const char *)a, "SPV_EXT_fragment_shader_interlock", (l - 1) * 4)) drop = 1;
-        if (cull_ok && (op == OP_MEMBER_DECORATE || op == OP_MEMBER_NAME) && l >= 3 && a[0] == cull_struct && a[1] == cull_member) drop = 1;
+        if (cull_ok && l >= 3) {
+            for (int k = 0; k < n_cull_st; k++) {
+                if (!cull_structs[k]) continue;
+                if ((op == OP_MEMBER_DECORATE || op == OP_MEMBER_NAME) && a[0] == cull_structs[k] && a[1] == cull_members[k]) drop = 1;
+                if (op == OP_TYPE_STRUCT && a[0] == cull_structs[k]) shrink = 1;
+            }
+        }
         if (!drop) {
             memcpy(o + on, w + i, l * 4);
-            if (cull_ok && op == OP_TYPE_STRUCT && a[0] == cull_struct) o[on] = (l - 1) << 16 | op;   // last member gone
-            on += op == OP_TYPE_STRUCT && cull_ok && a[0] == cull_struct ? l - 1 : l;
+            if (shrink) o[on] = (l - 1) << 16 | op;   // last member gone
+            on += shrink ? l - 1 : l;
             if (op == OP_TYPE_INT && a[0] == int32_t) {
                 if (add_one) { o[on++] = (4u << 16) | OP_CONSTANT; o[on++] = int32_t; o[on++] = int32_one; o[on++] = 1u; add_one = 0; }
                 if (add_neg1) { o[on++] = (4u << 16) | OP_CONSTANT; o[on++] = int32_t; o[on++] = int32_neg1; o[on++] = 0xffffffffu; add_neg1 = 0; }
@@ -1135,6 +1166,165 @@ static uint32_t *viewport_relative_layer(const uint32_t *w, uint64_t n, uint64_t
     return o;
 }
 
+// Lowers NV_geometry_shader_passthrough (OpCapability 5251) shaders that compute gl_Layer to standard Vulkan
+// Geometry shaders by copying gl_in[0..2].gl_Position and gl_Layer with OpEmitVertex + OpEndPrimitive.
+// Returns NULL when the module is not a layer-only passthrough geometry shader.
+static uint32_t *lower_gs_passthrough(const uint32_t *w, uint64_t n, uint64_t *out_n) {
+    enum {
+        OP_EXT = 10, OP_ENTRY_POINT = 15, OP_CAP = 17, OP_TYPE_INT = 21, OP_TYPE_FLOAT = 22, OP_TYPE_VEC = 23,
+        OP_TYPE_ARR = 28, OP_TYPE_STRUCT = 30, OP_TYPE_PTR = 32, OP_CONST = 43, OP_FN = 54, OP_VAR = 59,
+        OP_LOAD = 61, OP_STORE = 62, OP_ACCESS = 65, OP_DEC = 71, OP_MDEC = 72, OP_EMIT = 218, OP_ENDPRIM = 219,
+        OP_LABEL = 248, OP_RET = 253,
+        MODEL_GEOMETRY = 3, SC_INPUT = 1, SC_OUTPUT = 3, SC_FUNC = 7,
+        BUILTIN_POS = 0, BUILTIN_LAYER = 9, DEC_PASSTHROUGH = 5250, CAP_PASSTHROUGH = 5251, BUILTIN_VPMASK = 5253
+    };
+    if (n < 5) return NULL;
+    int has_cap = 0, geometry = 0, has_vpmask = 0;
+    uint32_t layer_var = 0, float_t = 0, v4f_t = 0, int_t = 0, arr_pv_t = 0, len3_id = 0;
+    uint32_t ptr_in_pv_arr = 0, ptr_out_pv = 0, ptr_in_v4f = 0, ptr_out_v4f = 0, ptr_fn_int = 0;
+    uint32_t in_var = 0, out_var = 0, ic[3] = {0, 0, 0};
+    uint32_t pv_structs[4] = {0};
+    int n_pv = 0, has_loc0_in = 0, has_loc0_out = 0;
+    uint32_t functions = 0, returns = 0;
+
+    for (uint64_t i = 5; i < n;) {
+        uint32_t op = w[i] & 0xffff, l = w[i] >> 16;
+        if (!l || i + l > n) return NULL;
+        const uint32_t *a = w + i + 1;
+        if (op == OP_CAP && l == 2 && a[0] == CAP_PASSTHROUGH) has_cap = 1;
+        else if (op == OP_ENTRY_POINT && l >= 3 && a[0] == MODEL_GEOMETRY) geometry = 1;
+        else if (op == OP_DEC && l >= 4 && a[1] == SPV_DEC_BUILTIN) {
+            if (a[2] == BUILTIN_LAYER) layer_var = a[0];
+            else if (a[2] == BUILTIN_VPMASK) has_vpmask = 1;
+        } else if (op == OP_DEC && l >= 4 && a[1] == 30 && a[2] == 0) {
+            has_loc0_in = has_loc0_out = 1;
+        } else if (op == OP_MDEC && l >= 5 && a[1] == 0 && a[2] == SPV_DEC_BUILTIN && a[3] == BUILTIN_POS) {
+            if (n_pv < 4) pv_structs[n_pv++] = a[0];
+        } else if (op == OP_TYPE_FLOAT && l >= 3 && a[1] == 32) float_t = a[0];
+        else if (op == OP_TYPE_VEC && l >= 4 && float_t && a[1] == float_t && a[2] == 4) v4f_t = a[0];
+        else if (op == OP_TYPE_INT && l >= 4 && a[1] == 32 && a[2] == 1) int_t = a[0];
+        else if (op == OP_TYPE_ARR && l >= 4) {
+            for (int k = 0; k < n_pv; k++) if (a[1] == pv_structs[k]) { arr_pv_t = a[0]; len3_id = a[2]; break; }
+        } else if (op == OP_TYPE_PTR && l >= 4) {
+            if (a[1] == SC_INPUT && arr_pv_t && a[2] == arr_pv_t) ptr_in_pv_arr = a[0];
+            else if (a[1] == SC_INPUT && v4f_t && a[2] == v4f_t) ptr_in_v4f = a[0];
+            else if (a[1] == SC_OUTPUT && v4f_t && a[2] == v4f_t) ptr_out_v4f = a[0];
+            else if (a[1] == SC_FUNC && int_t && a[2] == int_t) ptr_fn_int = a[0];
+            else if (a[1] == SC_OUTPUT) {
+                for (int k = 0; k < n_pv; k++) if (a[2] == pv_structs[k]) { ptr_out_pv = a[0]; break; }
+            }
+        } else if (op == OP_CONST && l == 4 && int_t && a[0] == int_t && a[2] < 3) ic[a[2]] = a[1];
+        else if (op == OP_VAR && l >= 4) {
+            if (a[2] == SC_INPUT && ptr_in_pv_arr && a[0] == ptr_in_pv_arr) in_var = a[1];
+            else if (a[2] == SC_OUTPUT && ptr_out_pv && a[0] == ptr_out_pv) out_var = a[1];
+        } else if (op == OP_FN) functions++;
+        else if (op == OP_RET) returns++;
+        i += l;
+    }
+
+    if (!geometry || !has_cap || has_vpmask) return NULL;
+    if (!layer_var || !in_var || !out_var || !v4f_t || !int_t || functions != 1 || !returns) {
+        LOG_ONCE("vk_pipeline: passthrough geometry shader of an unknown shape: keeping original");
+        return NULL;
+    }
+
+    uint32_t next_id = w[3];
+    int add_ptr_in = !ptr_in_v4f, add_ptr_out = !ptr_out_v4f, add_ptr_fn = !ptr_fn_int;
+    int add_ic[3] = {!ic[0], !ic[1], !ic[2]};
+    if (add_ptr_in) ptr_in_v4f = next_id++;
+    if (add_ptr_out) ptr_out_v4f = next_id++;
+    if (add_ptr_fn) ptr_fn_int = next_id++;
+    for (int v = 0; v < 3; v++) if (add_ic[v]) ic[v] = next_id++;
+    uint32_t tmp_layer = next_id++;
+    int fwd_loc0 = !has_loc0_in && !has_loc0_out && len3_id != 0;
+    uint32_t arr_v4f_t = fwd_loc0 ? next_id++ : 0;
+    uint32_t ptr_in_arr_v4f = fwd_loc0 ? next_id++ : 0;
+    uint32_t in_loc0 = fwd_loc0 ? next_id++ : 0;
+    uint32_t out_loc0 = fwd_loc0 ? next_id++ : 0;
+
+    uint64_t cap_words = n + 64 + (uint64_t)returns * 120;
+    uint32_t *o = malloc((size_t)cap_words * 4);
+    if (!o) return NULL;
+    memcpy(o, w, 5 * 4);
+    uint64_t on = 5;
+    int inserted_types = 0, inserted_var = 0, inserted_decs = 0;
+
+    for (uint64_t i = 5; i < n;) {
+        uint32_t op = w[i] & 0xffff, l = w[i] >> 16;
+        const uint32_t *a = w + i + 1;
+        if (op == OP_CAP && l == 2 && a[0] == CAP_PASSTHROUGH) { i += l; continue; }
+        if (op == OP_EXT && l == 10 && !strcmp((const char *)a, "SPV_NV_geometry_shader_passthrough")) { i += l; continue; }
+        if (op == OP_DEC && l >= 3 && a[1] == DEC_PASSTHROUGH) { i += l; continue; }
+        if (op == OP_MDEC && l >= 4 && a[2] == DEC_PASSTHROUGH) { i += l; continue; }
+
+        if ((op == OP_DEC || op == OP_MDEC) && fwd_loc0 && !inserted_decs) {
+            inserted_decs = 1;
+            o[on++] = 4u << 16 | OP_DEC; o[on++] = in_loc0;  o[on++] = 30u; o[on++] = 0u;
+            o[on++] = 4u << 16 | OP_DEC; o[on++] = out_loc0; o[on++] = 30u; o[on++] = 0u;
+        }
+
+        if (op == OP_FN && !inserted_types) {
+            inserted_types = 1;
+            if (add_ptr_in) { o[on++] = 4u << 16 | OP_TYPE_PTR; o[on++] = ptr_in_v4f; o[on++] = SC_INPUT; o[on++] = v4f_t; }
+            if (add_ptr_out) { o[on++] = 4u << 16 | OP_TYPE_PTR; o[on++] = ptr_out_v4f; o[on++] = SC_OUTPUT; o[on++] = v4f_t; }
+            if (add_ptr_fn) { o[on++] = 4u << 16 | OP_TYPE_PTR; o[on++] = ptr_fn_int; o[on++] = SC_FUNC; o[on++] = int_t; }
+            for (uint32_t v = 0; v < 3; v++) {
+                if (add_ic[v]) { o[on++] = 4u << 16 | OP_CONST; o[on++] = int_t; o[on++] = ic[v]; o[on++] = v; }
+            }
+            if (fwd_loc0) {
+                o[on++] = 4u << 16 | OP_TYPE_ARR; o[on++] = arr_v4f_t; o[on++] = v4f_t; o[on++] = len3_id;
+                o[on++] = 4u << 16 | OP_TYPE_PTR; o[on++] = ptr_in_arr_v4f; o[on++] = SC_INPUT; o[on++] = arr_v4f_t;
+                o[on++] = 4u << 16 | OP_VAR; o[on++] = ptr_in_arr_v4f; o[on++] = in_loc0; o[on++] = SC_INPUT;
+                o[on++] = 4u << 16 | OP_VAR; o[on++] = ptr_out_v4f; o[on++] = out_loc0; o[on++] = SC_OUTPUT;
+            }
+        }
+
+        if (op == OP_STORE && l == 3 && a[0] == layer_var) {
+            o[on++] = 3u << 16 | OP_STORE; o[on++] = tmp_layer; o[on++] = a[1];
+            i += l;
+            continue;
+        }
+
+        if (op == OP_RET) {
+            for (int v = 0; v < 3; v++) {
+                uint32_t lv = next_id++, pin = next_id++, pos = next_id++, pout = next_id++;
+                o[on++] = 4u << 16 | OP_LOAD;   o[on++] = int_t; o[on++] = lv; o[on++] = tmp_layer;
+                o[on++] = 3u << 16 | OP_STORE;  o[on++] = layer_var; o[on++] = lv;
+                o[on++] = 6u << 16 | OP_ACCESS; o[on++] = ptr_in_v4f; o[on++] = pin; o[on++] = in_var; o[on++] = ic[v]; o[on++] = ic[0];
+                o[on++] = 4u << 16 | OP_LOAD;   o[on++] = v4f_t; o[on++] = pos; o[on++] = pin;
+                o[on++] = 5u << 16 | OP_ACCESS; o[on++] = ptr_out_v4f; o[on++] = pout; o[on++] = out_var; o[on++] = ic[0];
+                o[on++] = 3u << 16 | OP_STORE;  o[on++] = pout; o[on++] = pos;
+                if (fwd_loc0) {
+                    uint32_t pil = next_id++, vl = next_id++;
+                    o[on++] = 5u << 16 | OP_ACCESS; o[on++] = ptr_in_v4f; o[on++] = pil; o[on++] = in_loc0; o[on++] = ic[v];
+                    o[on++] = 4u << 16 | OP_LOAD;   o[on++] = v4f_t; o[on++] = vl; o[on++] = pil;
+                    o[on++] = 3u << 16 | OP_STORE;  o[on++] = out_loc0; o[on++] = vl;
+                }
+                o[on++] = 1u << 16 | OP_EMIT;
+            }
+            o[on++] = 1u << 16 | OP_ENDPRIM;
+        }
+
+        memcpy(o + on, w + i, l * 4);
+        on += l;
+        if (op == OP_ENTRY_POINT && fwd_loc0 && a[0] == MODEL_GEOMETRY) {
+            o[on - l] = (l + 2) << 16 | op;
+            o[on++] = in_loc0;
+            o[on++] = out_loc0;
+        }
+
+        if (op == OP_LABEL && !inserted_var) {
+            inserted_var = 1;
+            o[on++] = 4u << 16 | OP_VAR; o[on++] = ptr_fn_int; o[on++] = tmp_layer; o[on++] = SC_FUNC;
+        }
+        i += l;
+    }
+
+    o[3] = next_id;
+    *out_n = on;
+    return o;
+}
+
 static uint32_t *nan_guard(const uint32_t *w, uint64_t words, uint64_t *out_n) {
     static int mode_set = -1;
     static volatile int32_t logged;
@@ -1170,9 +1360,11 @@ static uint32_t *nan_guard(const uint32_t *w, uint64_t words, uint64_t *out_n) {
 }
 
 static VkShaderModule make_module(const uint32_t *w, uint64_t words) {
-    uint64_t fixed_n = 0, layer_n = 0, nan_n = 0;
+    uint64_t fixed_n = 0, gs_n = 0, layer_n = 0, nan_n = 0;
     uint32_t *fixed = spirv_fixup(w, words, &fixed_n);
     if (fixed) w = fixed, words = fixed_n;
+    uint32_t *gs = !vk_ctx()->has_gs_passthrough ? lower_gs_passthrough(w, words, &gs_n) : NULL;
+    if (gs) free(fixed), fixed = gs, w = gs, words = gs_n;
     uint32_t *layer = vk_ctx()->has_viewport_array2 ? viewport_relative_layer(w, words, &layer_n) : NULL;
     if (layer) free(fixed), fixed = layer, w = layer, words = layer_n;
     uint32_t *nan = nan_guard(w, words, &nan_n);
@@ -2844,6 +3036,9 @@ void vk_pipeline_prewarm(void) {
     int nt = 0;
     const char *ps = cfg_get("MTF_PIPE_SYNC");
     int single = !(ps && !strcmp(ps, "0")) && vk_ctx()->props.vendorID == 0x10de;
+    if (queued)
+        rt_log("vk_pipeline: prewarming %u pipelines on %s (first launch or GPU/driver change may take a few seconds)...",
+               queued, vk_ctx()->props.deviceName);
     for (int i = 0; !single && i < cpus && i < 64 && queued; i++)
         if ((t[nt] = plat_thread_new(warm_builder, NULL, "pipe prewarm"))) nt++;
     if (!nt) warm_builder(NULL);

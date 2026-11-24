@@ -428,6 +428,9 @@ static void row_render_scale(void) {
     static const char *const vals[] = {"game", "50", "67", "75", "100", "125", "150", "200"};
     const char *names[] = {menu_text(UI_MENU_RENDER_SCALE_GAME), "50 %", "67 %", "75 %", "100 %",
                            "125 %", "150 %", "200 %"};
+    bool hdr = gfx_present_hdr() != 0 || cfg_bool("MTF_HDR");
+    if (hdr && strcmp(cfg_value("MTF_RENDER_SCALE"), "100")) cfg_set("MTF_RENDER_SCALE", "100");
+    if (hdr) opt_disable_next(UI_MENU_COLOR_HDR_NOTE);
     if (opt_choice_list("MTF_RENDER_SCALE", UI_MENU_RENDER_SCALE, vals, names, 8, UI_MENU_RENDER_SCALE_DESC))
         cfg_set("MTF_GRAPHICS_PRESET", "custom");
 }
@@ -449,9 +452,10 @@ static void row_graphics_preset(void) {
         const char *p = cfg_value("MTF_GRAPHICS_PRESET");
         for (const auto &e : presets) {
             if (!strcmp(p, e.name)) {
+                bool hdr = gfx_present_hdr() != 0 || cfg_bool("MTF_HDR");
                 bool ultra_dlaa = !strcmp(p, "ultra") && vk_dlaa_supported();
-                cfg_set("MTF_RENDER_SCALE", e.rscale);
-                cfg_set("MTF_UPSCALER", e.up);
+                cfg_set("MTF_RENDER_SCALE", hdr ? "100" : e.rscale);
+                cfg_set("MTF_UPSCALER", hdr ? "bilinear" : e.up);
                 cfg_set("MTF_DLAA", ultra_dlaa ? "1" : e.dlaa);
                 if (ultra_dlaa) cfg_set("MTF_DLSS", "dlaa");
                 cfg_set("MTF_ANISO", e.aniso);
@@ -561,15 +565,23 @@ static void tab_screen(float scale) {
     opt_choice_list("MTF_BACKGROUND_FPS", UI_MENU_BACKGROUND_FPS, background, background_names, 5,
                     UI_MENU_BACKGROUND_FPS_DESC);
     opt_group(UI_MENU_GRAPHICS);
+    bool hdr = gfx_present_hdr() != 0 || cfg_bool("MTF_HDR");
+    if (hdr && strcmp(cfg_value("MTF_UPSCALER"), "bilinear")) cfg_set("MTF_UPSCALER", "bilinear");
     static const UiTextId up[] = {UI_MENU_UPSCALER_FSR, UI_MENU_UPSCALER_BILINEAR};
+    if (hdr) opt_disable_next(UI_MENU_COLOR_HDR_NOTE);
     bool gfx_custom = opt_choice("MTF_UPSCALER", UI_MENU_UPSCALER, up, 2, UI_MENU_UPSCALER_DESC);
+    if (hdr) opt_disable_next(UI_MENU_COLOR_HDR_NOTE);
     opt_slider("MTF_SHARPNESS", UI_MENU_SHARPNESS, 0, 100, UI_MENU_SHARPNESS_DESC, 5, "%.0f %%");
+    bool dlaa_ok = vk_dlaa_supported();
+    if (!dlaa_ok && cfg_bool("MTF_DLAA")) cfg_set("MTF_DLAA", "0");
+    ImGui::BeginDisabled(!dlaa_ok);
     gfx_custom |= opt_toggle("MTF_DLAA", UI_MENU_DLAA, UI_MENU_DLAA_DESC);
     static const UiTextId dlss[] = {UI_MENU_DLSS_DLAA, UI_MENU_DLSS_QUALITY, UI_MENU_DLSS_BALANCED,
                                     UI_MENU_DLSS_PERFORMANCE, UI_MENU_DLSS_ULTRA};
     opt_choice("MTF_DLSS", UI_MENU_DLSS, dlss, 5, UI_MENU_DLSS_DESC);
     static const UiTextId preset[] = {UI_MENU_DLSS_PRESET_DEFAULT, UI_MENU_DLSS_PRESET_K, UI_MENU_DLSS_PRESET_J};
     opt_choice("MTF_DLSS_PRESET", UI_MENU_DLSS_PRESET, preset, 3, UI_MENU_DLSS_PRESET_DESC);
+    ImGui::EndDisabled();
     static const UiTextId aspect[] = {UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH};
     opt_choice("MTF_ASPECT", UI_MENU_ASPECT, aspect, 2, UI_MENU_ASPECT_DESC);
     static const char *const uw_vals[] = {"off", "21:9", "32:9"};
