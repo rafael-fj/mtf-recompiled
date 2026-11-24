@@ -101,15 +101,15 @@ Saves are stored in the `profile/` folder next to `mtf-recomp.exe` (alongside `m
 ## Status
 
 | Area | Status | Progress | Details |
-| :--- | :--- | :---: | :--- |
-| **ARM64 Static Lifting** | Complete | **99%** | 110,464 functions lifted (`main`, `sdk`, `nro0`) |
-| **Horizon OS HLE & Kernel** | Playable | **95%** | Clean boot, saves, preemption, in-memory Cheats |
-| **Vulkan Renderer (NVIDIA)** | Playable | **96%** | 0 validation errors (Gate F5), HDR10, DLAA/DLSS, Frame Gen |
-| **Vulkan Renderer (AMD)** | Playable (Partial) | **82%** | Boots & plays with fixed 3D colors; A/B/Y ball-trail interior missing on RDNA 2 (`24.30.66`) |
-| **Audio & Video** | Complete | **98%** | `audren` REV15 (96 voices) + `libvpx` VP9 cutscenes |
-| **UI, Controls & HDR** | Playable | **95%** | `F1` overlay, draggable sliders (`Ctrl+Click` type), HDR10 locks |
-| **Multiplayer & Remote Play** | Playable | **92%** | Local `P1`–`P4` + WebRTC / Cloudflare / Local Host streaming |
-| **Installer & Launcher** | Ready | **98%** | Self-contained Windows x64 zip + RecompLauncher SDK |
+| :--- | :--- | :--- | :--- |
+| **ARM64 Static Lifting** | Complete | ![99%](docs/images/bar-99.svg) | 110,464 functions lifted (`main`, `sdk`, `nro0`) |
+| **Horizon OS HLE & Kernel** | Playable | ![95%](docs/images/bar-95.svg) | Clean boot, saves, preemption, in-memory Cheats |
+| **Vulkan Renderer (NVIDIA)** | Playable | ![96%](docs/images/bar-96.svg) | 0 validation errors (Gate F5), HDR10, DLAA/DLSS, Frame Gen |
+| **Vulkan Renderer (AMD)** | Playable (Partial) | ![82%](docs/images/bar-82.svg) | Boots & plays with fixed 3D colors; A/B/Y ball-trail interior missing on RDNA 2 (`24.30.66`) |
+| **Audio & Video** | Complete | ![98%](docs/images/bar-98.svg) | `audren` REV15 (96 voices) + `libvpx` VP9 cutscenes |
+| **UI, Controls & HDR** | Playable | ![95%](docs/images/bar-95.svg) | `F1` overlay, draggable sliders (`Ctrl+Click` type), HDR10 locks |
+| **Multiplayer & Remote Play** | Playable | ![92%](docs/images/bar-92.svg) | Local `P1`–`P4` + WebRTC / Cloudflare / Local Host streaming |
+| **Installer & Launcher** | Ready | ![98%](docs/images/bar-98.svg) | Self-contained Windows x64 zip + RecompLauncher SDK |
 
 See **[docs/status-details.md](docs/status-details.md)** for what each percentage means and verified vs. known gaps, **[docs/port-status.md](docs/port-status.md)** for module metrics, and **[docs/roadmap.md](docs/roadmap.md)** (`F0`–`F9`) for the milestone checklist.
 
