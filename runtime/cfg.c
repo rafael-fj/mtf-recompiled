@@ -64,7 +64,7 @@ static const struct { const char *key, *def; } defaults[] = {
     {"SWAPCHAIN_SRGB", "1"},        // the window textures are sRGB: an sRGB swapchain keeps the blit from darkening them
     {"HDR", "0"},                   // vk_hdr.c: HDR10 output (read at start); the game itself is SDR
     {"HDR_PEAK_NITS", "1000"},      // the display's peak
-    {"HDR_PAPER_WHITE", "160"},     // the picture's white
+    {"HDR_PAPER_WHITE", "115"},     // the picture's white
     {"HDR_UI_NITS", "160"},         // the HUD's and the menus' white
     {"FPS_LIMIT", "60"},
     {"FRAMEGEN", "off"},
