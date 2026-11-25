@@ -105,11 +105,11 @@ Base: clean 1:1 fork (`build/fork/bin/mtf-recomp.exe` via `tools/build_fork.py`)
    - [ ] Port `flight.c` (`FLIGHT`), `vk_crumbs.c`, `prof_win.c`/`perf.c`, `rdoc.c`, `mods_scan.h` (`ROMFS_MODS`/`ROMFS_PATCHES`), `MOUSE_CAMERA`, and `RUMBLE_TRIGGERS`.
    - [ ] Keep `tools/build_fork.py` + `tools/mtf_launcher.py` aligned with clean fork builds.
 8. **Optimization Sprint (`v0.1.8`, branch `test`)** — plan in [docs/optimization-sprint.md](optimization-sprint.md)
-   - [ ] T0 Baseline capture (NVIDIA + AMD iGPU, first and second run) in [docs/perf-methodology.md](perf-methodology.md).
-   - [ ] T1 Frame-time telemetry (1% / 0.1% lows, pipeline waits) written to `mtf.log`.
-   - [ ] T2 Validate and decouple NVIDIA slice-parallel recording from async GPL.
-   - [ ] T3 Non-blocking pipeline prewarm.
-   - [ ] T4 Pipeline spike reduction (fast-link off the drawing thread, worker count, one-shot budget).
-   - [ ] T5 Dynamic resolution (spike first).
+   - [x] T0 Baseline capture (NVIDIA + AMD iGPU) in [docs/perf-methodology.md](perf-methodology.md).
+   - [x] T1 Frame-time telemetry (1% / 0.1% lows, pipeline waits) written to `mtf.log` (`MTF_PERF_LOG=1`).
+   - [x] T2 Validate and decouple NVIDIA slice-parallel recording from async GPL (`MTF_REPLAY_THREADS=0` decoupled + async GPL verified over 4,800 frames).
+   - [x] T3 Non-blocking pipeline prewarm (`MTF_PIPE_PREWARM_BLOCK_MS=3000`: AMD iGPU boot reduced from `21.99 s` to `4.04 s`).
+   - [x] T4 Pipeline spike reduction (`MTF_ONESHOT_BUDGET_MS=16`, `MAX_WORKERS=8`, `MTF_GPL_DRAW_LINK=0` default on AMD).
+   - [x] T5a Dynamic resolution spike (`ov_resolution_apply` sizes targets once at boot; arbitrary live `RENDER_SCALE` deferred).
    - [ ] T6 `MTF_REPLAY_ASYNC` A/B experiment.
    - [ ] T7 Docs, merge `test` to `main`, `v0.1.8` notes.

@@ -3098,16 +3098,18 @@ static VkPipeline graphics(const VkPipeState *s, const VkPipeInfo **info, int as
     // optimised build, from the low queue. Other draws leave the libraries to the job and are skipped meanwhile.
     // MTF_PIPE_WAIT=draw builds them on this thread one after the other instead, as before; MTF_GPL_DRAW_BUILD=0
     // leaves them to the job.
-    static int draw_build = -1;
+    static int draw_build = -1, draw_link = -1;
     if (draw_build < 0) {
         const char *e = cfg_get("MTF_GPL_DRAW_BUILD");
         draw_build = !(e && !strcmp(e, "0"));
+        const char *el = cfg_get("MTF_GPL_DRAW_LINK");
+        draw_link = (el && *el) ? strcmp(el, "0") != 0 : !vk_caps.amd;
         rt_log("vk_pipeline: a draw that waits for its pipeline %s", !draw_build ? "leaves its libraries to its job"
                : U.on ? "has its libraries built in parallel on the workers, ahead of other jobs"
                       : "builds its libraries itself (MTF_PIPE_WAIT=draw)");
     }
     double end = wait_ms ? now_ms() + wait_ms : 0;
-    if (p && p->building && P.gpl && !p->info.pipeline && !p->fast_tried && p->lay && wait_ms) {
+    if (p && p->building && P.gpl && !p->info.pipeline && !p->fast_tried && p->lay && wait_ms && draw_link) {
         int final = 0, build = wait_ms != 0 && draw_build;
         uint64_t p0 = perf_begin(), t0 = qpc();
         if (build && U.on) {
