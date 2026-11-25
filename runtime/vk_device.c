@@ -494,11 +494,41 @@ static void destroy_all(void) {
 
 long vk_validation_errors_total(void) { return g_errors_total + (g_ready ? g_vk.validation_errors : 0); }
 
+static void apply_recommended_preset(void) {
+    if (cfg_get("MTF_GRAPHICS_PRESET") && strcmp(cfg_value("MTF_GRAPHICS_PRESET"), "recommended") != 0) return;
+    uint64_t vram_mib = 0;
+    for (uint32_t i = 0; i < g_vk.mem_props.memoryHeapCount; i++) {
+        if (g_vk.mem_props.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+            uint64_t mib = g_vk.mem_props.memoryHeaps[i].size >> 20;
+            if (mib > vram_mib) vram_mib = mib;
+        }
+    }
+    int discrete = g_vk.props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+    int dlaa = vk_dlaa_available();
+    const char *tier = dlaa ? "rtx-dlaa" : (discrete && vram_mib >= 6144) ? "discrete-high"
+                     : discrete ? "discrete-mid" : "integrated-low";
+    const char *smaa = dlaa ? "off" : (discrete && vram_mib >= 6144) ? "high" : discrete ? "medium" : "off";
+    const char *fxaa = dlaa ? "0" : "1";
+    const char *aniso = dlaa || (discrete && vram_mib >= 6144) ? "16" : discrete ? "8" : "4";
+    const char *shadow = (dlaa || discrete) ? "2" : "1";
+    if (!cfg_get("MTF_DLAA") && dlaa) cfg_set("MTF_DLAA", "1");
+    if (!cfg_get("MTF_DLSS") && dlaa) cfg_set("MTF_DLSS", "dlaa");
+    if (!cfg_get("MTF_SMAA")) cfg_set("MTF_SMAA", smaa);
+    if (!cfg_get("MTF_FXAA")) cfg_set("MTF_FXAA", fxaa);
+    if (!cfg_get("MTF_ANISO")) cfg_set("MTF_ANISO", aniso);
+    if (!cfg_get("MTF_SHADOW_SCALE")) cfg_set("MTF_SHADOW_SCALE", shadow);
+    if (!cfg_get("MTF_SHARPNESS")) cfg_set("MTF_SHARPNESS", "50");
+    rt_log("cfg: recommended preset (%s, %llu MiB VRAM): DLAA=%s SMAA=%s ANISO=%s SHADOW_SCALE=%s",
+           tier, (unsigned long long)vram_mib, cfg_value("MTF_DLAA"), cfg_value("MTF_SMAA"),
+           cfg_value("MTF_ANISO"), cfg_value("MTF_SHADOW_SCALE"));
+}
+
 int vk_init(void) {
     plat_mutex_lock(&g_lock);
     if (!g_ready) {
         memset(&g_vk, 0, sizeof g_vk);
-        if (create_instance() && pick_device() && create_device()) g_ready = 1, vk_headroom_start(), vk_dlaa_init();
+        if (create_instance() && pick_device() && create_device())
+            g_ready = 1, vk_headroom_start(), vk_dlaa_init(), apply_recommended_preset();
         else destroy_all();
     }
     int ok = g_ready;

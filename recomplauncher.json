@@ -47,6 +47,7 @@
       "format": "ini",
       "file": [{ "path": "{install}/mtf.ini" }],
       "new": {
+        "GRAPHICS_PRESET": "recommended",
         "OUTPUT_RES": "auto",
         "RENDER_SCALE": "100",
         "FPS_LIMIT": "60",
@@ -55,12 +56,7 @@
         "WINDOW_SIZE": "1920x1080",
         "UPSCALER": "fsr",
         "SHARPNESS": "50",
-        "SMAA": "medium",
-        "ANISO": "8",
-        "SHADOW_SCALE": "2",
         "HDR": "0",
-        "DLAA": "0",
-        "DLSS": "dlaa",
         "FRAMEGEN": "off",
         "ASPECT": "fit",
         "AUDIO_CHANNELS": "auto",
@@ -72,6 +68,19 @@
     }
   ],
   "settings": [
+    {
+      "id": "graphics_preset",
+      "label": "Graphics preset",
+      "help": "Recommended auto-tunes DLAA/SMAA, anisotropy, and shadows to your GPU (RTX, discrete AMD/Intel, or integrated).",
+      "choices": [
+        { "label": "Recommended (Auto)", "set": { "GRAPHICS_PRESET": "recommended" } },
+        { "label": "Low", "set": { "GRAPHICS_PRESET": "low", "SMAA": "off", "ANISO": "game", "SHADOW_SCALE": "1", "DLAA": "0" } },
+        { "label": "Balanced", "set": { "GRAPHICS_PRESET": "balanced", "SMAA": "off", "ANISO": "4", "SHADOW_SCALE": "1", "DLAA": "0" } },
+        { "label": "High", "set": { "GRAPHICS_PRESET": "high", "SMAA": "medium", "ANISO": "8", "SHADOW_SCALE": "2", "DLAA": "0" } },
+        { "label": "Ultra", "set": { "GRAPHICS_PRESET": "ultra", "SMAA": "high", "ANISO": "16", "SHADOW_SCALE": "2" } }
+      ],
+      "defaults": { "GRAPHICS_PRESET": "recommended" }
+    },
     {
       "id": "output_res",
       "label": "Output resolution",
@@ -102,15 +111,10 @@
     {
       "id": "fps_limit",
       "label": "Frame rate limit",
-      "help": "60 FPS is the console's native rate. Higher limits speed up simulation — use Frame generation below for 120+ FPS at 1x speed.",
+      "help": "60 FPS is the console's native simulation rate. Use Frame generation below for 120+ FPS at normal 1x speed.",
       "choices": [
         { "label": "60 FPS (Native)", "set": { "FPS_LIMIT": "60" } },
-        { "label": "30 FPS", "set": { "FPS_LIMIT": "30" } },
-        { "label": "45 FPS", "set": { "FPS_LIMIT": "45" } },
-        { "label": "90 FPS", "set": { "FPS_LIMIT": "90" } },
-        { "label": "120 FPS", "set": { "FPS_LIMIT": "120" } },
-        { "label": "Monitor refresh", "set": { "FPS_LIMIT": "display" } },
-        { "label": "Uncapped", "set": { "FPS_LIMIT": "unlimited" } }
+        { "label": "30 FPS", "set": { "FPS_LIMIT": "30" } }
       ],
       "defaults": { "FPS_LIMIT": "60" }
     },

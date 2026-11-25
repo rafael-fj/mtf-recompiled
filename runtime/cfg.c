@@ -140,7 +140,7 @@ static CfgMeta metas[] = {
     {"HUD_POSITION", NULL, "edges|centered", LIVE},
     {"FOV", NULL, "70..140", LIVE},
     {"RENDER_SCALE", NULL, "game|50|67|75|100|125|150|200", RESTART},
-    {"GRAPHICS_PRESET", "custom", "low|balanced|high|ultra|custom", RESTART},
+    {"GRAPHICS_PRESET", "recommended", "low|balanced|high|ultra|custom|recommended", RESTART},
     {"UPSCALER", NULL, "fsr|bilinear", LIVE}, {"SHARPNESS", NULL, "0..100", LIVE},
     {"ASPECT", NULL, "fit|stretch", LIVE}, {"ANISO", NULL, "game|2|4|8|16", RESTART},
     {"SHADOW_SCALE", "2", "1|2|3|4", RESTART},
