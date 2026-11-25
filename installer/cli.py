@@ -145,14 +145,16 @@ class PrepareReporter(Reporter):
 
 def prepare_main(argv=None):
     ap = argparse.ArgumentParser(prog='MTF-Recomp-Setup --prepare')
-    ap.add_argument('--game', type=Path, required=True, help='path to the extracted game folder or .nup')
+    # Without --game the steps run from the files the last install kept in the install folder (game/updates/...), so a
+    # new release can be built again after the player deleted their .nup; the check step asks for it when it's needed.
+    ap.add_argument('--game', type=Path, help='path to the extracted game folder or .nup')
     ap.add_argument('--dest', type=Path, help='install folder (default: executable folder)')
     ap.add_argument('--root', type=Path, help='release folder or repository')
     args = ap.parse_args(argv)
 
     default_dest = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path.cwd()
     dest = (args.dest or default_dest).resolve()
-    game = args.game.resolve()
+    game = args.game.resolve() if args.game else None
 
     layout = layouts.find(args.root)
     temp = temp_folder(layout.temp.resolve(), dest)
@@ -161,8 +163,8 @@ def prepare_main(argv=None):
     t0 = time.monotonic()
 
     cli_ns = argparse.Namespace(
-        nup=game if game.is_file() else None,
-        content=game if game.is_dir() else None,
+        nup=game if game and game.is_file() else None,
+        content=game if game and game.is_dir() else None,
         firmware=None,
         keys=None,
         dest=dest,

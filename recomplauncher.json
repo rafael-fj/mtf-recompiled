@@ -2,19 +2,40 @@
   "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
   "format": 1,
   "name": "Mario Tennis Fever: Recompiled",
-  "game": {
-    "kind": "folder",
-    "label": "Your extracted Mario Tennis Fever (Update 1.1.1 / v327680) folder containing exefs/ and romfs/.",
-    "check": {
-      "file": "exefs/main"
+  "repo": "rafael-fj/mtf-recompiled",
+  "inputs": [
+    {
+      "id": "game",
+      "label": "Your Mario Tennis Fever (Switch 2) with Update 1.1.1 (v327680): the .nup with the base game and the update, or a folder with the 1.1.1 update's exefs and romfs.",
+      "formats": [
+        { "type": "file", "extensions": ["nup"] },
+        { "type": "folder" }
+      ],
+      "check": {
+        "nup_build_id": "104bce6874603701"
+      }
+    },
+    {
+      "id": "dlss",
+      "label": "NVIDIA DLSS",
+      "role": "runtime",
+      "shared": "nvidia.dlss",
+      "optional": true,
+      "destination": "nvngx_dlss.dll"
     }
+  ],
+  "system": {
+    "windows": { "version": "10", "graphics": { "vulkan": "1.3" } }
   },
   "start": {
     "program": [
       "mtf-recomp.exe",
       "bin/mtf-recomp.exe"
     ],
-    "args": []
+    "args": [],
+    "env": {
+      "MTF_UPDATE_CHECK": "0"
+    }
   },
   "saves": [
     "{install}/profile",
@@ -24,7 +45,7 @@
     {
       "id": "main",
       "format": "ini",
-      "file": "{install}/mtf.ini",
+      "file": [{ "path": "{install}/mtf.ini" }],
       "new": {
         "OUTPUT_RES": "auto",
         "RENDER_SCALE": "100",
@@ -82,7 +103,7 @@
         { "label": "120 FPS", "set": { "FPS_LIMIT": "120" } },
         { "label": "144 FPS", "set": { "FPS_LIMIT": "144" } },
         { "label": "30 FPS", "set": { "FPS_LIMIT": "30" } },
-        { "label": "Uncapped", "set": { "FPS_LIMIT": "0" } }
+        { "label": "Uncapped", "set": { "FPS_LIMIT": "unlimited" } }
       ],
       "defaults": { "FPS_LIMIT": "60" }
     },
@@ -95,7 +116,7 @@
         { "label": "Fast (Mailbox)", "set": { "VK_PRESENT": "mailbox" } },
         { "label": "Off (Immediate)", "set": { "VK_PRESENT": "immediate" } }
       ],
-      "defaults": { "VK_PRESENT": "fifo" }
+      "defaults": { "VK_PRESENT": "mailbox" }
     },
     {
       "id": "fullscreen",
@@ -232,12 +253,12 @@
         { "label": "English (US)", "set": { "LANG": "en-US" } },
         { "label": "Português (Brasil)", "set": { "LANG": "pt-BR" } },
         { "label": "Español (Latinoamérica)", "set": { "LANG": "es-419" } },
-        { "label": "Español (España)", "set": { "LANG": "es-ES" } },
-        { "label": "Français", "set": { "LANG": "fr-FR" } },
-        { "label": "Deutsch", "set": { "LANG": "de-DE" } },
-        { "label": "Italiano", "set": { "LANG": "it-IT" } },
-        { "label": "日本語", "set": { "LANG": "ja-JP" } },
-        { "label": "한국어", "set": { "LANG": "ko-KR" } }
+        { "label": "Español (España)", "set": { "LANG": "es" } },
+        { "label": "Français", "set": { "LANG": "fr" } },
+        { "label": "Deutsch", "set": { "LANG": "de" } },
+        { "label": "Italiano", "set": { "LANG": "it" } },
+        { "label": "日本語", "set": { "LANG": "ja" } },
+        { "label": "한국어", "set": { "LANG": "ko" } }
       ],
       "defaults": { "LANG": "en-US" }
     },
@@ -307,8 +328,9 @@
     "graphics": "vulkan"
   },
   "folders": {
-    "saves": "{install}/profile",
-    "logs": "{install}/logs"
+    "game": [{ "path": "{install}/game" }],
+    "saves": [{ "path": "{install}/profile" }],
+    "logs": [{ "path": "{install}/logs" }]
   },
   "actions": [
     {
@@ -330,13 +352,12 @@
     ],
     "args": [
       "--prepare",
-      "--game",
-      "{game}"
+      "--game={input:game}"
     ],
     "label": "Extracting, lifting, translating shaders, and compiling the game",
-    "timeout": 1800,
     "done": [
       "{install}/mtf-recomp.exe"
-    ]
+    ],
+    "keeps_copy": true
   }
 }

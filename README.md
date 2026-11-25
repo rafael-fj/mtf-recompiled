@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://recompstore.com/dev/rafael-fj"><img src="https://recompstore.com/assets/press/verified-dark.svg" alt="Verified developer on RecompStore"></a>
-  <a href="https://recomplauncher.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
+  <a href="https://recomplauncher.com/game/mtf-recompiled"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
 </p>
 
 <p align="center">
@@ -51,7 +51,7 @@
 
 ### Option A — RecompLauncher (Recommended)
 1. Install [RecompLauncher](https://recomplauncher.com).
-2. Install **Mario Tennis Fever: Recompiled** and point it to your extracted `Update 1.1.1` folder (`exefs/` and `romfs/`).
+2. Install **Mario Tennis Fever: Recompiled** and pick your `.nup` (base game + Update 1.1.1) or your extracted `Update 1.1.1` folder (`exefs/` and `romfs/`); the launcher builds the game for you.
 3. Adjust graphics, audio, and cheats directly in the launcher and press **Play**.
 
 ### Option B — Windows Setup (`MTF-Recomp-v*-Windows-x64.zip`)
