@@ -224,7 +224,8 @@ def main() -> int:
     if args.make_runtime_lib:
         bdir = args.bundle_dir or (ROOT / "build" / "release-bundle")
         llvm = next((p for p in (ROOT / "toolchain").glob("llvm-mingw-*") if p.is_dir()), bdir / "llvm")
-        build_runtime_lib(llvm, ROOT / "toolchain" / "deps-mingw", bdir / "deps" / "lib")
+        deps = (ROOT / "toolchain" / "deps-mingw") if (ROOT / "toolchain" / "deps-mingw").is_dir() else (bdir / "deps")
+        build_runtime_lib(llvm, deps, bdir / "deps" / "lib")
     zip_path = make_release(args.version, args.out)
     size_mb = zip_path.stat().st_size / (1024 * 1024)
     print(f"Created clean release archive: {zip_path} ({size_mb:.2f} MiB)")
