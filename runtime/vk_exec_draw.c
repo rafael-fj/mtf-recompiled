@@ -2132,7 +2132,7 @@ static uint32_t pass_viewports(const VkExec *ex) {
     uint32_t n = ex->vp_n < ex->pass_layers ? ex->vp_n : ex->pass_layers, most = c->props.limits.maxViewports;
     if (most > 16) most = 16;
     if (n > most) n = most;
-    return c->has_viewport_array2 && n > 1 ? n : 1;
+    return (c->has_viewport_array2 || c->has_multi_viewport) && n > 1 ? n : 1;
 }
 
 static void record_fixed(VkExec *ex) {
@@ -2388,7 +2388,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
         const GfxShader *gs = shader_for(ex, NVN_STAGE_GS, &has_gs, NULL, 1);
         if (has_gs && gs && geometry_on()) {
             const VkCtx *vc = vk_ctx();
-            if (!vc->has_viewport_array2) {
+            if (!vc->has_viewport_array2 && !vc->has_multi_viewport) {
                 uint64_t nw = 0;
                 const uint32_t *w = gfx_shader_spirv(gs, &nw);
                 int bad = 0;

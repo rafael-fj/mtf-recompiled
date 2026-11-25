@@ -340,7 +340,6 @@ static int create_device(void) {
     else rt_log("vk: no VK_NV_geometry_shader_passthrough: layer passthrough geometry shaders will be lowered");
     // the shadow casters' broadcast to the cascades, one viewport and layer each (ViewportMaskNV)
     if (has_ext(ep, ne, "VK_NV_viewport_array2")) g_vk.has_viewport_array2 = 1, ext[n_ext++] = "VK_NV_viewport_array2";
-    else rt_log("vk: no VK_NV_viewport_array2: shadow cascades past the first stay empty");
     if (has_ext(ep, ne, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME)) { g_vk.has_memory_budget = 1; ext[n_ext++] = VK_EXT_MEMORY_BUDGET_EXTENSION_NAME; }
     // a UNORM view of the sRGB swapchain images, for the menu overlay (gfx_present.c): ImGui blends in sRGB code values
     if (has_ext(ep, ne, VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME)) {
@@ -404,6 +403,11 @@ static int create_device(void) {
                       : "unavailable (no VK_EXT_device_address_binding_report)");
     g_vk.has_buffer_device_address = c->f12.bufferDeviceAddress;
     g_vk.has_astc_ldr = h->textureCompressionASTC_LDR;
+    g_vk.has_multi_viewport = h->multiViewport;
+    if (!g_vk.has_viewport_array2)
+        rt_log("vk: no VK_NV_viewport_array2: %s",
+               g_vk.has_multi_viewport ? "lowering ViewportMaskNV shadow cascades via MultiViewport"
+                                       : "shadow cascades past the first stay empty");
     {
         const char *e = cfg_get("MTF_FEEDBACK");
         int layout_ok = has_fbl && has_lr && c->fbl.attachmentFeedbackLoopLayout && c->lr.dynamicRenderingLocalRead;
