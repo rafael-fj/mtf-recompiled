@@ -111,5 +111,5 @@ Base: clean 1:1 fork (`build/fork/bin/mtf-recomp.exe` via `tools/build_fork.py`)
    - [x] T3 Non-blocking pipeline prewarm (`MTF_PIPE_PREWARM_BLOCK_MS=3000`: AMD iGPU boot reduced from `21.99 s` to `4.04 s`).
    - [x] T4 Pipeline spike reduction (`MTF_ONESHOT_BUDGET_MS=16`, `MAX_WORKERS=8`, `MTF_GPL_DRAW_LINK=0` default on AMD).
    - [x] T5a Dynamic resolution spike (`ov_resolution_apply` sizes targets once at boot; arbitrary live `RENDER_SCALE` deferred).
-   - [ ] T6 `MTF_REPLAY_ASYNC` A/B experiment.
+   - [x] T6 `MTF_REPLAY_ASYNC` A/B experiment (`0` vs `1` on AMD iGPU: `60.1 fps` / `1% low 58.0` in both; kept `0` default to avoid 1-frame latency).
    - [ ] T7 Docs, merge `test` to `main`, `v0.1.8` notes.
