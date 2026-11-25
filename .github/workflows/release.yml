@@ -48,16 +48,45 @@ jobs:
             --add-data "$root\installer\assets;installer\assets" `
             "$root\installer\exe_entry.py"
 
+      - name: Fetch self-contained Windows toolchain bundle
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $prev = gh release list --limit 10 --json tagName,isDraft,isPrerelease -q '[.[] | select(.isDraft==false and .isPrerelease==false) | .tagName][0]'
+          if (-not $prev) { throw "No previous release found to seed build/release-bundle" }
+          New-Item -ItemType Directory -Force -Path build/prev-dl | Out-Null
+          gh release download $prev -p "MTF-Recomp-v*-Windows-x64.zip" -D build/prev-dl
+          $zip = Get-ChildItem build/prev-dl/MTF-Recomp-v*-Windows-x64.zip | Select-Object -First 1
+          Expand-Archive -Path $zip.FullName -DestinationPath build/prev-ext -Force
+          $top = Get-ChildItem build/prev-ext -Directory | Select-Object -First 1
+          New-Item -ItemType Directory -Force -Path build/release-bundle | Out-Null
+          foreach ($d in @('bin', 'deps', 'llvm', 'python')) {
+            $src = Join-Path $top.FullName $d
+            if (Test-Path $src) { Move-Item -Path $src -Destination (Join-Path build/release-bundle $d) }
+          }
+          Remove-Item -Recurse -Force build/prev-dl, build/prev-ext
+
       - name: Package release archives
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION -Raw).Trim()
-          python tools/make_release.py --version $ver --windows-zip
+          python tools/make_release.py --version $ver --windows-zip --make-runtime-lib --bundle-dir build/release-bundle
+
+      - name: Prepare release notes from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $body = (git tag -l --format='%(contents)' $tag | Out-String).Trim()
+          if (-not $body) { $body = "Release $tag" }
+          Set-Content -Path release_notes.md -Value $body -Encoding utf8
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release_notes.md
           generate_release_notes: true
           files: |
             build/release/MTF-Recomp-v*-Windows-x64.zip
