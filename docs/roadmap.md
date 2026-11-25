@@ -104,3 +104,12 @@ Base: clean 1:1 fork (`build/fork/bin/mtf-recomp.exe` via `tools/build_fork.py`)
    - [x] Add RecompLauncher SDK support (`recomplauncher.json` Levels 1–3, headless `--prepare`, `RECOMPLAUNCHER_*` env integration) and GitHub Actions `--onedir` release workflow (`.github/workflows/release.yml`).
    - [ ] Port `flight.c` (`FLIGHT`), `vk_crumbs.c`, `prof_win.c`/`perf.c`, `rdoc.c`, `mods_scan.h` (`ROMFS_MODS`/`ROMFS_PATCHES`), `MOUSE_CAMERA`, and `RUMBLE_TRIGGERS`.
    - [ ] Keep `tools/build_fork.py` + `tools/mtf_launcher.py` aligned with clean fork builds.
+8. **Optimization Sprint (`v0.1.8`, branch `test`)** — plan in [docs/optimization-sprint.md](optimization-sprint.md)
+   - [ ] T0 Baseline capture (NVIDIA + AMD iGPU, first and second run) in [docs/perf-methodology.md](perf-methodology.md).
+   - [ ] T1 Frame-time telemetry (1% / 0.1% lows, pipeline waits) written to `mtf.log`.
+   - [ ] T2 Validate and decouple NVIDIA slice-parallel recording from async GPL.
+   - [ ] T3 Non-blocking pipeline prewarm.
+   - [ ] T4 Pipeline spike reduction (fast-link off the drawing thread, worker count, one-shot budget).
+   - [ ] T5 Dynamic resolution (spike first).
+   - [ ] T6 `MTF_REPLAY_ASYNC` A/B experiment.
+   - [ ] T7 Docs, merge `test` to `main`, `v0.1.8` notes.

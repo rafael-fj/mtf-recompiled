@@ -291,3 +291,9 @@
   - `runtime/vk_dlaa.c`: Fixed `vk_dlaa_supported()` returning `0` on NVIDIA GPUs when booting with `MTF_DLAA=0`.
   - `runtime/stream_hwenc.cpp`, `runtime/stream_host.c`: Added explicit `MF_MT_DEFAULT_STRIDE` for NV12 input, used `f.visibleRect` in WebCodecs `drawImage`, and fell back to H.264/VP8 on Firefox clients to prevent the green-padding crop bug while keeping AV1 on Chrome/Edge.
   - `VERSION`, `docs/port-status.md`, `docs/devlog.md`: Bumped to `0.1.7` and packaged the self-contained Windows x64 archive (`--bundle-dir build/release-bundle`).
+
+### 2026-11-25 — Optimization sprint planned (branch `test`)
+- **Context:** RecompLauncher reports for `v0.1.7` (RX 9070 XT, RTX 4080 SUPER) cite FPS drop spikes; community asked for dynamic fps.
+- **Done on `test` (built + boot smoke only, no gain measured):** `06b64c9` (one-shot wait budget, GPL workers up to 8, async GPL on NVIDIA), `6577b8a` / `e277f45` (launcher graphics settings, `Recommended` preset, launcher `fps_limit` 30/60), `22edab2` / `e50df1d` / `9e01b8f` (ViewportMaskNV to MultiViewport shadow cascades on AMD/Intel, gated to `SHADOW_SCALE >= 2`; heap buffer size fix after a crash on the AMD iGPU).
+- **Observed side effect to verify:** `par_threads()` ([runtime/vk_exec.c](../runtime/vk_exec.c)) now defaults to slice-parallel recording on NVIDIA because async GPL is on; only boot was smoke-tested.
+- **Plan:** [docs/optimization-sprint.md](optimization-sprint.md) (T0-T7). No item is marked done yet.
