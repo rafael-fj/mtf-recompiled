@@ -1459,7 +1459,7 @@ static uint32_t *lower_gs_viewport_mask(const uint32_t *w, uint64_t n, uint64_t 
     uint32_t in_loc0 = fwd_loc0 ? next_id++ : 0;
     uint32_t out_loc0 = fwd_loc0 ? next_id++ : 0;
 
-    uint64_t cap_words = n + 96 + (uint64_t)returns * 360;
+    uint64_t cap_words = n + 128 + (uint64_t)returns * 640;
     uint32_t *o = malloc((size_t)cap_words * 4);
     if (!o) return NULL;
     memcpy(o, w, 5 * 4);
