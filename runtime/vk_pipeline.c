@@ -2384,7 +2384,7 @@ typedef struct Job {
     GKey k;
 } Job;
 
-#define MAX_WORKERS 4
+#define MAX_WORKERS 8
 
 static struct {
     int on;                            // set once by vk_pipeline_async_enable, before the replay runs
@@ -2648,11 +2648,11 @@ static void pipe_worker(void *arg) {
     return;
 }
 
-// Starts the pool on first use: a quarter of the logical processors, 2 to 4. Caller holds P.lock.
+// Starts the pool on first use: half of the logical processors, 2 to MAX_WORKERS. Caller holds P.lock.
 static int workers_start(void) {
     if (A.threads) return 1;
     uint32_t cpus = plat_cpu_usable();
-    int n = cpus / 4 < 2 ? 2 : cpus / 4 > MAX_WORKERS ? MAX_WORKERS : (int)(cpus / 4);
+    int n = cpus / 2 < 2 ? 2 : cpus / 2 > MAX_WORKERS ? MAX_WORKERS : (int)(cpus / 2);
     for (int i = 0; i < n; i++) {
         PlatThread *t = plat_thread_new(pipe_worker, (void *)(intptr_t)A.threads, "pipe worker");
         if (!t) break;
@@ -2670,7 +2670,7 @@ void vk_pipeline_async_enable(void) {
         if (strcmp(e, "0") != 0) return;
     } else {
         VkCtx *vc = vk_ctx();
-        if (vc && vc->props.vendorID == 0x10de) return;
+        if (vc && vc->props.vendorID == 0x10de && !vk_caps.gpl) return;
     }
     A.on = 1;
 }
@@ -3035,7 +3035,8 @@ void vk_pipeline_prewarm(void) {
     PlatThread *t[64];
     int nt = 0;
     const char *ps = cfg_get("MTF_PIPE_SYNC");
-    int single = !(ps && !strcmp(ps, "0")) && vk_ctx()->props.vendorID == 0x10de;
+    int single = (!(ps && !strcmp(ps, "0")) && vk_ctx()->props.vendorID == 0x10de && !vk_caps.gpl) ||
+                 (ps && *ps && strcmp(ps, "0") != 0);
     if (queued)
         rt_log("vk_pipeline: prewarming %u pipelines on %s (first launch or GPU/driver change may take a few seconds)...",
                queued, vk_ctx()->props.deviceName);
@@ -3058,10 +3059,11 @@ void vk_pipeline_prewarm(void) {
 static void prebuild_start(void) {
     plat_mutex_lock(&P.lock);
     const char *e = cfg_get("MTF_PIPE_SYNC");
-    if ((!e || !*e) && A.on && vk_ctx()->props.vendorID == 0x10de) {
-        // Background pipe_worker builds (both compile_pipeline and GPL lib_create) hit nvoglv64.dll+0x10ea90 (0x8 read) on NVIDIA.
+    if (((!e || !*e) && A.on && vk_ctx()->props.vendorID == 0x10de && !vk_caps.gpl) ||
+        (e && *e && strcmp(e, "0") != 0 && A.on)) {
         A.on = 0;
-        rt_log("vk_pipeline: synchronous pipeline builds on NVIDIA (MTF_PIPE_SYNC=0 overrides)");
+        rt_log("vk_pipeline: synchronous pipeline builds (%s)",
+               (e && *e) ? "MTF_PIPE_SYNC" : "NVIDIA without GPL; MTF_PIPE_SYNC=0 overrides");
     }
     if (K.file && !K.warm) {
         rt_log("vk_pipeline: prebuild off%s; %zu records not built",
