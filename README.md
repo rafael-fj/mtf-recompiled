@@ -40,7 +40,7 @@
 - **High Resolution & Upscaling:** `720p` to `8K (4320p)`, smart `auto` matching your display, `50%`–`200%` render scale, AMD FSR 1, Bilinear, HDR10, and NVIDIA DLAA/DLSS.
 - **Controllers & Dynamic Prompts:** Plug-and-play SDL3 gamepad support (Nintendo Switch, Xbox, PlayStation), full keyboard/gamepad remapping (`F1 -> Controls`), and live-switching button prompt icons matching your active input device.
 - **In-Game Overlay (`F1` / `Esc` / `Minus+Plus`):** Dear ImGui settings menu in English and Brazilian Portuguese (`pt-BR`), performance monitor, and `F1 -> Cheats` (in-memory toggles to unlock characters, outfits, rackets, courts, and cups/modes for instant multiplayer without altering your save).
-- **Multiplayer & Browser Remote Play (`F1 -> Multiplayer`):** Local multi-gamepad routing (`P1`–`P4`) plus built-in browser streaming (VP8 + Opus + remote controller input) so up to 4 friends can join from Chrome/Edge.
+- **Multiplayer & Browser Remote Play (`F1 -> Multiplayer`):** Local multi-gamepad routing (`P1`–`P4`) plus built-in browser streaming (`AV1` on Chromium / `H.264` on Firefox + `Opus` + remote controller input) so up to 4 friends can join from a browser.
 - **Easy Setup & Updates:** RecompLauncher SDK integration (`recomplauncher.json`, Levels 1–3), guided Windows installer (`MTF-Recomp-Setup.exe`), and an automatic in-game GitHub release notifier (one-time 5s banner + `F1` menu reminder).
 
 ---
@@ -93,6 +93,7 @@ Saves are stored in the `profile/` folder next to `mtf-recomp.exe` (alongside `m
 | **WebRTC (Low Latency UDP)** | WebRTC DataChannel (UDP) + automatic WebSocket fallback | Best responsiveness for online matches; falls back to WebSocket automatically if a peer's NAT blocks UDP | **Hidden** during signaling when `cloudflared.exe` is installed | **~25–55 ms** (direct UDP) |
 
 - **Stream Quality Presets:** Switch live in `F1 -> Multiplayer` between **Performance** (`540p`, `2.2 Mbps`), **Balanced** (`720p`, `4.5 Mbps`, default), and **Quality** (`720p`, `7.5 Mbps`).
+- **Browser Compatibility & Codecs:** **AV1** streaming (`AV1 -> H.264 -> VP8`) requires a **Chromium-based browser** (Chrome, Edge, Brave, Opera). **Firefox** is supported using **H.264** (with VP8 fallback) only — AV1 is automatically skipped on Firefox.
 - **Notifications:** A 3-second banner at the top of the screen notifies the host when remote players (P2–P4) connect or disconnect.
 - **One-Click Tunnel Setup:** Install `cloudflared.exe` directly from `F1 -> Multiplayer` (**Install Cloudflare**).
 

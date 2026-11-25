@@ -241,3 +241,8 @@ This catalog tracks every *Mario Tennis Fever*-specific technical obstacle using
 - **Symptom:** With `HDR=1`, sunlit court grass clipped brightly and dragging `Game Brightness` (`HDR_PAPER_WHITE`) / `Display Peak Nits` (`HDR_PEAK_NITS`) produced no visible change when the window was smaller than `1080p` or used `FSR`.
 - **Root Cause:** `hdr_compose.comp` previously gated scene HDR on `abs(srgb_encode(sdr) - w) <= 1.5/255` (falling back to `UI Brightness` whenever window scaling/upscaling altered `w`) and applied `lift_shadows()` (`pow(l, 0.82)`) + an early `knee(0.90f)`.
 - **Fix:** Removed `lift_shadows()` and the fragile `1.5/255` match gate in `runtime/shaders/hdr_compose.comp` (`hdr_compose_spv.h`), raised the knee to `0.97f` with a `2.0x` headroom cap in `runtime/vk_hdr.c`, and locked `Render Scale = 100%` + `Upscaler = Bilinear` in `runtime/ui/menu.cpp` while `HDR` is active.
+
+## 32. Firefox WebCodecs Green Border & AV1 Stream Crop
+- **Symptom:** Remote players joining `F1 -> Multiplayer` on Firefox saw a large green padding border (video shrunk to top-left corner) when the stream negotiated AV1.
+- **Root Cause:** `stream_hwenc.cpp` did not set `MF_MT_DEFAULT_STRIDE` explicitly on NV12 input, and `stream_host.c` drew decoded `VideoFrame`s via `ctx.drawImage(f, 0, 0, c.width, c.height)` without cropping to `f.visibleRect`, while Firefox's WebCodecs AV1 decoder exposed padded coded dimensions.
+- **Fix:** Set `MF_MT_DEFAULT_STRIDE = w` in `runtime/stream_hwenc.cpp`, updated `drawImage` in `runtime/stream_host.c` to use `f.visibleRect`, and skipped `av1` on Firefox user-agents (`av1=false`) so Firefox uses **H.264** (with VP8 fallback) while **AV1** (`AV1 -> H.264 -> VP8`) remains enabled on Chromium-based browsers.
