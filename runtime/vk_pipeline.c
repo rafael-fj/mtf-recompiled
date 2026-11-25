@@ -2671,6 +2671,7 @@ static struct {
     uint32_t left;                     // prebuild jobs queued or running
     uint32_t built, failed, promoted;
     double t0;                         // now_ms() when the prebuild started
+    double deadline_ms;                // T3: 0 = unlimited; >0 = stop blocking boot at this timestamp
 } K = {.io = PLAT_MUTEX_INIT};
 
 static uint64_t rec_hash(const KeyRec *r) {
@@ -3106,7 +3107,7 @@ static VkPipeline graphics(const VkPipeState *s, const VkPipeInfo **info, int as
                       : "builds its libraries itself (MTF_PIPE_WAIT=draw)");
     }
     double end = wait_ms ? now_ms() + wait_ms : 0;
-    if (p && p->building && P.gpl && !p->info.pipeline && !p->fast_tried && p->lay) {
+    if (p && p->building && P.gpl && !p->info.pipeline && !p->fast_tried && p->lay && wait_ms) {
         int final = 0, build = wait_ms != 0 && draw_build;
         uint64_t p0 = perf_begin(), t0 = qpc();
         if (build && U.on) {
@@ -3170,7 +3171,7 @@ static int id_cmp(const void *x, const void *y) { return memcmp(x, y, 32); }
 static void warm_builder(void *arg) {
     (void)arg;
     plat_mutex_lock(&P.lock);
-    while (A.low) {
+    while (A.low && (!K.deadline_ms || now_ms() < K.deadline_ms)) {
         Job *j = A.low;
         if ((A.low = j->next)) A.low->prev = NULL;
         else A.low_tail = NULL;
@@ -3276,18 +3277,26 @@ void vk_pipeline_prewarm(void) {
     const char *ps = cfg_get("MTF_PIPE_SYNC");
     int single = (!(ps && !strcmp(ps, "0")) && vk_ctx()->props.vendorID == 0x10de && !vk_caps.gpl) ||
                  (ps && *ps && strcmp(ps, "0") != 0);
+    int block_ms = cfg_int("MTF_PIPE_PREWARM_BLOCK_MS");
+    K.deadline_ms = (block_ms >= 0 && !single) ? now_ms() + (double)block_ms : 0.0;
     if (queued)
-        rt_log("vk_pipeline: prewarming %u pipelines on %s (first launch or GPU/driver change may take a few seconds)...",
-               queued, vk_ctx()->props.deviceName);
-    for (int i = 0; !single && i < cpus && i < 64 && queued; i++)
+        rt_log("vk_pipeline: prewarming %u pipelines on %s (budget %d ms)...",
+               queued, vk_ctx()->props.deviceName, block_ms);
+    for (int i = 0; !single && block_ms != 0 && i < cpus && i < 64 && queued; i++)
         if ((t[nt] = plat_thread_new(warm_builder, NULL, "pipe prewarm"))) nt++;
-    if (!nt) warm_builder(NULL);
+    if (!nt && block_ms != 0) warm_builder(NULL);
     for (int i = 0; i < nt; i++) plat_thread_join(t[i]);
     plat_mutex_lock(&P.lock);
-    while (K.left) plat_cond_wait(&done_cv, &P.lock);   // jobs a pool worker took
-    rt_log("vk_pipeline: prewarm: %zu records in %s: %u pipelines built, %u failed, %u already built, %u dropped "
-           "(shader neither cached nor stored); shaders %.0f ms, pipelines %.0f ms on %d threads, total %.0f ms",
-           n, K.path, K.built, K.failed, known, dropped, t1 - t0, now_ms() - t1, nt, now_ms() - t0);
+    double now;
+    while (K.left && (!K.deadline_ms || (now = now_ms()) < K.deadline_ms))
+        plat_cond_wait_ms(&done_cv, &P.lock, K.deadline_ms ? (uint32_t)(K.deadline_ms - now) + 1 : 100);
+    if (K.left)
+        rt_log("vk_pipeline: prewarm: %u pipelines built in %.0f ms (%u remaining continuing in background)",
+               K.built, now_ms() - t1, K.left);
+    else
+        rt_log("vk_pipeline: prewarm: %zu records in %s: %u pipelines built, %u failed, %u already built, %u dropped "
+               "(shader neither cached nor stored); shaders %.0f ms, pipelines %.0f ms on %d threads, total %.0f ms",
+               n, K.path, K.built, K.failed, known, dropped, t1 - t0, now_ms() - t1, nt, now_ms() - t0);
     free(K.file);
     K.file = NULL;
     plat_mutex_unlock(&P.lock);

@@ -111,11 +111,13 @@ static const struct { const char *key, *def; } defaults[] = {
     {"DESC_TEMPLATE", "1"},         // vk_pipeline.c: descriptor update templates
     {"LIB_PREBUILD", "1"},          // vk_pipeline.c: compute pipelines and stage libraries of known shaders built at boot
     {"PIPE_PREBUILD", "1"},         // vk_pipeline.c: graphics pipelines of earlier runs (pipeline-keys.bin) built at boot
+    {"PIPE_PREWARM_BLOCK_MS", "3000"},   // vk_pipeline.c: max ms boot waits for prewarm before continuing in background
     {"PIPE_SKIP", "fullscreen"},    // vk_exec_draw.c: which draws are skipped while their pipeline builds
     {"PIPE_WAIT", "default"},       // vk_pipeline.c: pipelines build on worker threads (draw: on the drawing thread)
     {"SPLIT_DRAWS", "64"},          // vk_exec.c: the replay's command buffer is submitted in parts of this many draws...
     {"SPLIT_US", "1000"},           // ...and at least this many microseconds of recording, so the GPU starts early
     {"VK_SUBGROUP_PIN", "1"},       // vk_caps.c: pin the subgroup size the shaders were translated for
+    {"PERF_LOG", "1"},              // gfx_stubs.c: log frame-time summary (avg, 1%/0.1% lows, pipe waits) to mtf.log
     {"CHEAT_UNLOCK_CHARS", "0"},    // cheats.c: unlock all characters in memory
     {"CHEAT_UNLOCK_COSTUMES", "0"}, // cheats.c: unlock all alternate character costumes/colors
     {"CHEAT_UNLOCK_RACKETS", "0"},  // cheats.c: unlock all rackets in memory

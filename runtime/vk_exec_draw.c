@@ -2619,6 +2619,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
         if (PM.valid) PM.s = s, PM.info = info;
     }
     uint64_t waited = w0 ? kern_now_ns() - w0 : 0;
+    if (waited >= 16000000) perf_note_pipe_wait(waited);
     static int wait_logs;
     if (why && waited >= 2000000 && wait_logs < 200) {
         char tg[512];

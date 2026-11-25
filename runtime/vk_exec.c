@@ -1231,7 +1231,7 @@ static int par_threads(void) {
         const char *e = cfg_get("MTF_REPLAY_THREADS");
         uint32_t cpus = plat_cpu_usable();
         par_mode = e && *e ? atoi(e)
-                 : (vk_caps.amd || (vk_ctx()->props.vendorID == 0x10de && !vk_pipeline_async_on())) ? 0
+                 : (vk_caps.amd || vk_ctx()->props.vendorID == 0x10de) ? 0
                  : cpus >= 12 ? 6 : cpus >= 8 ? 4 : 0;
         if (par_mode < 0) par_mode = 0;
         if (par_mode)
