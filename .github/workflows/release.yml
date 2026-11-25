@@ -54,10 +54,20 @@ jobs:
           $ver = (Get-Content VERSION -Raw).Trim()
           python tools/make_release.py --version $ver --windows-zip
 
+      - name: Prepare release notes from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $body = (git tag -l --format='%(contents)' $tag | Out-String).Trim()
+          if (-not $body) { $body = "Release $tag" }
+          Set-Content -Path release_notes.md -Value $body -Encoding utf8
+
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release_notes.md
           generate_release_notes: true
           files: |
             build/release/MTF-Recomp-v*-Windows-x64.zip
