@@ -283,3 +283,11 @@
   - `README.md`, `docs/port-status.md`, `docs/status-details.md`: Added realistic percentage-based status summary (`SavageWindRecomp` style) and dedicated `status-details.md` breakdown.
 - **Verification:**
   - `python tools/build_fork.py`, `MTF_GPU_INDEX=1` + `MTF_VK_VALIDATION=1` boot smoke test (`FATAL: 0`), user-verified in-match AMD boot/colors and live HDR sliders on NVIDIA, and `python tools/check_content.py` (`exit 0`).
+
+
+### 2026-11-24 — `v0.1.7`: Self-Contained Toolkit Release, PR #15 (RecompLauncher `.nup`), DLAA Probe Fix & Firefox Stream Fix
+- **Changes:**
+  - Merged **PR #15** (`Xarishark:recomplauncher-support`): `recomplauncher.json` now uses `inputs` accepting `.nup` (base + 1.1.1) or extracted 1.1.1 folders (`nup_build_id: 104bce6874603701`), fixes language codes (`es`, `fr`, `de`, `it`, `ja`, `ko`), `FPS_LIMIT=unlimited`, `VK_PRESENT=mailbox`, optional `nvidia.dlss`, `MTF_UPDATE_CHECK=0`, and `keeps_copy` (`--game` optional in `installer/cli.py --prepare`).
+  - `runtime/vk_dlaa.c`: Fixed `vk_dlaa_supported()` returning `0` on NVIDIA GPUs when booting with `MTF_DLAA=0`.
+  - `runtime/stream_hwenc.cpp`, `runtime/stream_host.c`: Added explicit `MF_MT_DEFAULT_STRIDE` for NV12 input, used `f.visibleRect` in WebCodecs `drawImage`, and fell back to H.264/VP8 on Firefox clients to prevent the green-padding crop bug while keeping AV1 on Chrome/Edge.
+  - `VERSION`, `docs/port-status.md`, `docs/devlog.md`: Bumped to `0.1.7` and packaged the self-contained Windows x64 archive (`--bundle-dir build/release-bundle`).

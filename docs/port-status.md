@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-11-24  
 **Target game:** *Mario Tennis Fever* (Switch 2 / `Ounce`, Title ID `0400D4201C6EA000`, Update `1.1.1` / `v327680`)  
-**Current phase:** `v0.1.6` — Playable PC Port (NVIDIA 96% / AMD 82%) + Portable `GeometryShaderPassthroughNV` Lowering + Fixed HDR10 Calibration & Draggable Sliders + Self-Contained Windows Installer + RecompLauncher SDK (`recomplauncher.json`). See [status-details.md](status-details.md) for the full percentage breakdown.
+**Current phase:** `v0.1.7` — Playable PC Port (NVIDIA 96% / AMD 82%) + Portable `GeometryShaderPassthroughNV` Lowering + Fixed HDR10 Calibration & Draggable Sliders + RecompLauncher `.nup` Support (PR #15) + Self-Contained Windows Installer. See [status-details.md](status-details.md) for the full percentage breakdown.
 
 ## Module Status
 

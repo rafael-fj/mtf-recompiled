@@ -184,6 +184,7 @@ int stream_hwenc_open(int codec, int w, int h, int fps, int kbps, int kf_dist) {
     in_mt->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
     in_mt->SetGUID(MF_MT_SUBTYPE, kGuidNV12);
     in_mt->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+    in_mt->SetUINT32(MF_MT_DEFAULT_STRIDE, (UINT32)w);
     MFSetAttributeSize(in_mt, MF_MT_FRAME_SIZE, (UINT32)w, (UINT32)h);
     MFSetAttributeRatio(in_mt, MF_MT_FRAME_RATE, (UINT32)fps, 1);
     MFSetAttributeRatio(in_mt, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
