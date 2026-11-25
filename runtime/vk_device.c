@@ -404,10 +404,6 @@ static int create_device(void) {
     g_vk.has_buffer_device_address = c->f12.bufferDeviceAddress;
     g_vk.has_astc_ldr = h->textureCompressionASTC_LDR;
     g_vk.has_multi_viewport = h->multiViewport;
-    if (!g_vk.has_viewport_array2)
-        rt_log("vk: no VK_NV_viewport_array2: %s",
-               g_vk.has_multi_viewport ? "lowering ViewportMaskNV shadow cascades via MultiViewport"
-                                       : "shadow cascades past the first stay empty");
     {
         const char *e = cfg_get("MTF_FEEDBACK");
         int layout_ok = has_fbl && has_lr && c->fbl.attachmentFeedbackLoopLayout && c->lr.dynamicRenderingLocalRead;
@@ -531,9 +527,18 @@ int vk_init(void) {
     plat_mutex_lock(&g_lock);
     if (!g_ready) {
         memset(&g_vk, 0, sizeof g_vk);
-        if (create_instance() && pick_device() && create_device())
+        if (create_instance() && pick_device() && create_device()) {
             g_ready = 1, vk_headroom_start(), vk_dlaa_init(), apply_recommended_preset();
-        else destroy_all();
+            g_vk.use_multi_viewport_shadows =
+                !g_vk.has_viewport_array2 && g_vk.has_multi_viewport && cfg_int("MTF_SHADOW_SCALE") >= 2;
+            if (!g_vk.has_viewport_array2)
+                rt_log("vk: no VK_NV_viewport_array2: %s",
+                       g_vk.use_multi_viewport_shadows
+                           ? "lowering ViewportMaskNV shadow cascades via MultiViewport (SHADOW_SCALE >= 2)"
+                           : "shadow cascades past the first stay empty (SHADOW_SCALE=1 / Low mode)");
+        } else {
+            destroy_all();
+        }
     }
     int ok = g_ready;
     plat_mutex_unlock(&g_lock);

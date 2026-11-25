@@ -1600,7 +1600,7 @@ static VkShaderModule make_module(const uint32_t *w, uint64_t words) {
     if (fixed) w = fixed, words = fixed_n;
     uint32_t *gs = !vk_ctx()->has_gs_passthrough ? lower_gs_passthrough(w, words, &gs_n) : NULL;
     if (gs) free(fixed), fixed = gs, w = gs, words = gs_n;
-    uint32_t *vpm = (!vk_ctx()->has_viewport_array2 && vk_ctx()->has_multi_viewport)
+    uint32_t *vpm = (!vk_ctx()->has_viewport_array2 && vk_ctx()->use_multi_viewport_shadows)
                         ? lower_gs_viewport_mask(w, words, &vpm_n)
                         : NULL;
     if (vpm) free(fixed), fixed = vpm, w = vpm, words = vpm_n;
