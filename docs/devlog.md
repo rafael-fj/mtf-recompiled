@@ -291,3 +291,14 @@
   - `runtime/vk_dlaa.c`: Fixed `vk_dlaa_supported()` returning `0` on NVIDIA GPUs when booting with `MTF_DLAA=0`.
   - `runtime/stream_hwenc.cpp`, `runtime/stream_host.c`: Added explicit `MF_MT_DEFAULT_STRIDE` for NV12 input, used `f.visibleRect` in WebCodecs `drawImage`, and fell back to H.264/VP8 on Firefox clients to prevent the green-padding crop bug while keeping AV1 on Chrome/Edge.
   - `VERSION`, `docs/port-status.md`, `docs/devlog.md`: Bumped to `0.1.7` and packaged the self-contained Windows x64 archive (`--bundle-dir build/release-bundle`).
+
+### 2026-11-25 — Optimization sprint planned (branch `test`)
+- **Context:** RecompLauncher reports for `v0.1.7` (RX 9070 XT, RTX 4080 SUPER) cite FPS drop spikes; community asked for dynamic fps.
+- **Done on `test` (built + boot smoke only, no gain measured):** `06b64c9` (one-shot wait budget, GPL workers up to 8, async GPL on NVIDIA), `6577b8a` / `e277f45` (launcher graphics settings, `Recommended` preset, launcher `fps_limit` 30/60), `22edab2` / `e50df1d` / `9e01b8f` (ViewportMaskNV to MultiViewport shadow cascades on AMD/Intel, gated to `SHADOW_SCALE >= 2`; heap buffer size fix after a crash on the AMD iGPU).
+- **Observed side effect to verify:** `par_threads()` ([runtime/vk_exec.c](../runtime/vk_exec.c)) now defaults to slice-parallel recording on NVIDIA because async GPL is on; only boot was smoke-tested.
+- **Plan:** [docs/optimization-sprint.md](optimization-sprint.md) (T0-T7). No item is marked done yet.
+
+### 2026-11-25 — Sprint T0/T1/T2/T3/T4 playtest measurements (branch `test`)
+- **NVIDIA High (RTX 5070 Ti, `mtf.log`, 4,800 frames):** `avg 60.0 fps (16.67 ms)`, `1% low 52.6–55.6 fps`, `0.1% low 34.2–51.3 fps`, `pipe_waits>16ms = 0`, `5` fast-links (avg `0.02 ms`, max `0.05 ms`), `0` failed. Async GPL + decoupled `MTF_REPLAY_THREADS=0` verified clean in real gameplay.
+- **AMD iGPU Low (`24.30.66`, `mtf.1.log`, 2,400 frames):** `boot: guest starts 4036 ms` (down from `21986 ms`, `248` prewarmed in `3405 ms` + `1490` in background); in-match `avg 35.2–35.5 fps`, `1% low 27.0–27.4 fps`, `0.1% low 21.2–25.5 fps`. Isolated a `78.9 ms` drawing-thread `gpl_link` spike at frame 737; added `MTF_GPL_DRAW_LINK=0` default on AMD in [runtime/vk_pipeline.c](../runtime/vk_pipeline.c).
+- **T6 A/B (`MTF_REPLAY_ASYNC=0` vs `1`, AMD iGPU, 24s runs):** `0` gave `60.1 fps (16.65 ms), 1% low 58.0, 0.1% low 43.0, worst 23.1 ms`; `1` gave `60.1 fps (16.63 ms), 1% low 58.0, 0.1% low 46.0, worst 21.6 ms`. Difference is within noise and in-match iGPU bottleneck is GPU-side, so `MTF_REPLAY_ASYNC=0` remains the default (zero extra latency).

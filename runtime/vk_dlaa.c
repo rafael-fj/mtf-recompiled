@@ -196,9 +196,17 @@ int vk_aa_mode(void) {
 // NGX is brought up only when dlaa is on at start: its device extensions can only be asked for at device creation, and
 // loading the driver's NGX core on every NVIDIA machine would cost start time and change the device with DLAA off. So
 // dlaa applies after a restart; switched off, nothing else of DLAA runs.
+static int core_load(void);
+
 int vk_dlaa_wanted(void) {
     static int wanted = -1;
-    if (wanted < 0) wanted = vk_aa_mode() == VK_AA_DLAA;
+    if (wanted < 0) {
+        if (!cfg_get("MTF_DLAA") &&
+            (!cfg_get("MTF_GRAPHICS_PRESET") || !strcmp(cfg_value("MTF_GRAPHICS_PRESET"), "recommended")))
+            wanted = core_load();
+        else
+            wanted = vk_aa_mode() == VK_AA_DLAA;
+    }
     return wanted;
 }
 

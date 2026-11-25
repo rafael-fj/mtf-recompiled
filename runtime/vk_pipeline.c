@@ -1359,12 +1359,251 @@ static uint32_t *nan_guard(const uint32_t *w, uint64_t words, uint64_t *out_n) {
     return o;
 }
 
+// Lowers NV_viewport_array2 (ViewportMaskNV) shadow-cascade geometry shaders to standard Vulkan MultiViewport
+// Geometry shaders (4 cascades: bit 0..3 -> gl_Layer = k, gl_ViewportIndex = k, OutputVertices = 12).
+// Returns NULL when the module is not a ViewportMaskNV geometry shader.
+static uint32_t *lower_gs_viewport_mask(const uint32_t *w, uint64_t n, uint64_t *out_n) {
+    enum {
+        OP_EXT = 10, OP_ENTRY_POINT = 15, OP_EXEC_MODE = 16, OP_CAP = 17, OP_TYPE_BOOL = 20, OP_TYPE_INT = 21,
+        OP_TYPE_FLOAT = 22, OP_TYPE_VEC = 23, OP_TYPE_ARR = 28, OP_TYPE_PTR = 32, OP_CONST = 43, OP_FN = 54,
+        OP_VAR = 59, OP_LOAD = 61, OP_STORE = 62, OP_ACCESS = 65, OP_DEC = 71, OP_MDEC = 72, OP_INE = 171,
+        OP_AND = 199, OP_EMIT = 218, OP_ENDPRIM = 219, OP_SEL_MERGE = 247, OP_LABEL = 248, OP_BR = 249,
+        OP_BR_COND = 250, OP_RET = 253,
+        MODEL_GEOMETRY = 3, SC_INPUT = 1, SC_OUTPUT = 3, SC_FUNC = 7,
+        CAP_MULTI_VPORT = 57, CAP_PASSTHROUGH = 5251, CAP_VPMASK = 5255,
+        BUILTIN_POS = 0, BUILTIN_LAYER = 9, BUILTIN_VPORT = 10, BUILTIN_VPMASK = 5253,
+        DEC_PASSTHROUGH = 5250, DEC_VPREL = 5252, EXEC_OUTPUT_VERTICES = 26
+    };
+    if (n < 5) return NULL;
+    int geometry = 0, has_cap_mv = 0, has_loc0_in = 0, has_loc0_out = 0;
+    uint32_t mask_var = 0, layer_var = 0, vport_var = 0;
+    uint32_t bool_t = 0, int_t = 0, float_t = 0, v4f_t = 0, arr_pv_t = 0, len3_id = 0;
+    uint32_t ptr_in_pv_arr = 0, ptr_out_pv = 0, ptr_in_v4f = 0, ptr_out_v4f = 0, ptr_out_int = 0, ptr_fn_int = 0;
+    uint32_t in_var = 0, out_var = 0, ic[4] = {0, 0, 0, 0}, bit_c[4] = {0, 0, 0, 0};
+    uint32_t pv_structs[4] = {0}, mask_ptrs[8] = {0};
+    int n_pv = 0, n_mask_ptrs = 0;
+    uint32_t functions = 0, returns = 0;
+
+    for (uint64_t i = 5; i < n;) {
+        uint32_t op = w[i] & 0xffff, l = w[i] >> 16;
+        if (!l || i + l > n) return NULL;
+        const uint32_t *a = w + i + 1;
+        if (op == OP_CAP && l == 2 && a[0] == CAP_MULTI_VPORT) has_cap_mv = 1;
+        else if (op == OP_ENTRY_POINT && l >= 3 && a[0] == MODEL_GEOMETRY) geometry = 1;
+        else if (op == OP_DEC && l >= 4 && a[1] == SPV_DEC_BUILTIN) {
+            if (a[2] == BUILTIN_VPMASK) mask_var = a[0];
+            else if (a[2] == BUILTIN_LAYER) layer_var = a[0];
+            else if (a[2] == BUILTIN_VPORT) vport_var = a[0];
+        } else if (op == OP_DEC && l >= 4 && a[1] == 30 && a[2] == 0) {
+            has_loc0_in = has_loc0_out = 1;
+        } else if (op == OP_MDEC && l >= 5 && a[1] == 0 && a[2] == SPV_DEC_BUILTIN && a[3] == BUILTIN_POS) {
+            if (n_pv < 4) pv_structs[n_pv++] = a[0];
+        } else if (op == OP_TYPE_BOOL && l >= 2) bool_t = a[0];
+        else if (op == OP_TYPE_FLOAT && l >= 3 && a[1] == 32) float_t = a[0];
+        else if (op == OP_TYPE_VEC && l >= 4 && float_t && a[1] == float_t && a[2] == 4) v4f_t = a[0];
+        else if (op == OP_TYPE_INT && l >= 4 && a[1] == 32 && a[2] == 1) int_t = a[0];
+        else if (op == OP_TYPE_ARR && l >= 4) {
+            for (int k = 0; k < n_pv; k++) if (a[1] == pv_structs[k]) { arr_pv_t = a[0]; len3_id = a[2]; break; }
+        } else if (op == OP_TYPE_PTR && l >= 4) {
+            if (a[1] == SC_INPUT && arr_pv_t && a[2] == arr_pv_t) ptr_in_pv_arr = a[0];
+            else if (a[1] == SC_INPUT && v4f_t && a[2] == v4f_t) ptr_in_v4f = a[0];
+            else if (a[1] == SC_OUTPUT && v4f_t && a[2] == v4f_t) ptr_out_v4f = a[0];
+            else if (a[1] == SC_OUTPUT && int_t && a[2] == int_t) ptr_out_int = a[0];
+            else if (a[1] == SC_FUNC && int_t && a[2] == int_t) ptr_fn_int = a[0];
+            else if (a[1] == SC_OUTPUT) {
+                for (int k = 0; k < n_pv; k++) if (a[2] == pv_structs[k]) { ptr_out_pv = a[0]; break; }
+            }
+        } else if (op == OP_CONST && l == 4 && int_t && a[0] == int_t) {
+            if (a[2] < 4) ic[a[2]] = a[1];
+            if (a[2] == 1) bit_c[0] = a[1];
+            else if (a[2] == 2) bit_c[1] = a[1];
+            else if (a[2] == 4) bit_c[2] = a[1];
+            else if (a[2] == 8) bit_c[3] = a[1];
+        } else if (op == OP_VAR && l >= 4) {
+            if (a[2] == SC_INPUT && ptr_in_pv_arr && a[0] == ptr_in_pv_arr) in_var = a[1];
+            else if (a[2] == SC_OUTPUT && ptr_out_pv && a[0] == ptr_out_pv) out_var = a[1];
+        } else if (op == OP_ACCESS && l >= 5 && mask_var && a[2] == mask_var) {
+            if (n_mask_ptrs < 8) mask_ptrs[n_mask_ptrs++] = a[1];
+        } else if (op == OP_FN) functions++;
+        else if (op == OP_RET) returns++;
+        i += l;
+    }
+
+    if (!geometry || !mask_var) return NULL;
+    if (!in_var || !out_var || !v4f_t || !int_t || functions != 1 || !returns) {
+        LOG_ONCE("vk_pipeline: viewport-mask geometry shader of an unknown shape: keeping original");
+        return NULL;
+    }
+
+    uint32_t next_id = w[3];
+    int add_bool = !bool_t, add_ptr_in = !ptr_in_v4f, add_ptr_out = !ptr_out_v4f;
+    int add_ptr_out_int = !ptr_out_int, add_ptr_fn = !ptr_fn_int;
+    int add_layer = !layer_var, add_vport = !vport_var;
+    if (add_bool) bool_t = next_id++;
+    if (add_ptr_in) ptr_in_v4f = next_id++;
+    if (add_ptr_out) ptr_out_v4f = next_id++;
+    if (add_ptr_out_int) ptr_out_int = next_id++;
+    if (add_ptr_fn) ptr_fn_int = next_id++;
+    if (add_layer) layer_var = next_id++;
+    if (add_vport) vport_var = next_id++;
+    int add_ic[4] = {!ic[0], !ic[1], !ic[2], !ic[3]};
+    for (int k = 0; k < 4; k++) if (add_ic[k]) ic[k] = next_id++;
+    int add_bit[4] = {!bit_c[0], !bit_c[1], !bit_c[2], !bit_c[3]};
+    if (!bit_c[0]) bit_c[0] = ic[1], add_bit[0] = 0;
+    if (!bit_c[1]) bit_c[1] = ic[2], add_bit[1] = 0;
+    for (int k = 2; k < 4; k++) if (add_bit[k]) bit_c[k] = next_id++;
+    uint32_t tmp_mask = next_id++;
+    int fwd_loc0 = !has_loc0_in && !has_loc0_out && len3_id != 0;
+    uint32_t arr_v4f_t = fwd_loc0 ? next_id++ : 0;
+    uint32_t ptr_in_arr_v4f = fwd_loc0 ? next_id++ : 0;
+    uint32_t in_loc0 = fwd_loc0 ? next_id++ : 0;
+    uint32_t out_loc0 = fwd_loc0 ? next_id++ : 0;
+
+    uint64_t cap_words = n + 128 + (uint64_t)returns * 640;
+    uint32_t *o = malloc((size_t)cap_words * 4);
+    if (!o) return NULL;
+    memcpy(o, w, 5 * 4);
+    uint64_t on = 5;
+    int inserted_cap = has_cap_mv, inserted_types = 0, inserted_var = 0, inserted_decs = 0;
+
+    for (uint64_t i = 5; i < n;) {
+        uint32_t op = w[i] & 0xffff, l = w[i] >> 16;
+        const uint32_t *a = w + i + 1;
+        if (op == OP_CAP && l == 2 && (a[0] == CAP_PASSTHROUGH || a[0] == CAP_VPMASK)) { i += l; continue; }
+        if (op == OP_EXT &&
+            (!strcmp((const char *)a, "SPV_NV_geometry_shader_passthrough") ||
+             !strcmp((const char *)a, "SPV_NV_viewport_array2"))) {
+            i += l;
+            continue;
+        }
+        if (op == OP_DEC && l >= 3 && (a[0] == mask_var || a[1] == DEC_PASSTHROUGH || a[1] == DEC_VPREL)) {
+            i += l;
+            continue;
+        }
+        if (op == OP_MDEC && l >= 4 && a[2] == DEC_PASSTHROUGH) { i += l; continue; }
+        if (op == OP_VAR && l >= 4 && a[1] == mask_var) { i += l; continue; }
+        if (op == OP_ACCESS && l >= 5 && a[2] == mask_var) { i += l; continue; }
+
+        if ((op == OP_DEC || op == OP_MDEC) && !inserted_decs) {
+            inserted_decs = 1;
+            if (add_layer) { o[on++] = 4u << 16 | OP_DEC; o[on++] = layer_var; o[on++] = SPV_DEC_BUILTIN; o[on++] = BUILTIN_LAYER; }
+            if (add_vport) { o[on++] = 4u << 16 | OP_DEC; o[on++] = vport_var; o[on++] = SPV_DEC_BUILTIN; o[on++] = BUILTIN_VPORT; }
+            if (fwd_loc0) {
+                o[on++] = 4u << 16 | OP_DEC; o[on++] = in_loc0;  o[on++] = 30u; o[on++] = 0u;
+                o[on++] = 4u << 16 | OP_DEC; o[on++] = out_loc0; o[on++] = 30u; o[on++] = 0u;
+            }
+        }
+
+        if (op == OP_FN && !inserted_types) {
+            inserted_types = 1;
+            if (add_bool) { o[on++] = 2u << 16 | OP_TYPE_BOOL; o[on++] = bool_t; }
+            if (add_ptr_in) { o[on++] = 4u << 16 | OP_TYPE_PTR; o[on++] = ptr_in_v4f; o[on++] = SC_INPUT; o[on++] = v4f_t; }
+            if (add_ptr_out) { o[on++] = 4u << 16 | OP_TYPE_PTR; o[on++] = ptr_out_v4f; o[on++] = SC_OUTPUT; o[on++] = v4f_t; }
+            if (add_ptr_out_int) { o[on++] = 4u << 16 | OP_TYPE_PTR; o[on++] = ptr_out_int; o[on++] = SC_OUTPUT; o[on++] = int_t; }
+            if (add_ptr_fn) { o[on++] = 4u << 16 | OP_TYPE_PTR; o[on++] = ptr_fn_int; o[on++] = SC_FUNC; o[on++] = int_t; }
+            for (uint32_t k = 0; k < 4; k++) {
+                if (add_ic[k]) { o[on++] = 4u << 16 | OP_CONST; o[on++] = int_t; o[on++] = ic[k]; o[on++] = k; }
+            }
+            for (int k = 2; k < 4; k++) {
+                if (add_bit[k]) { o[on++] = 4u << 16 | OP_CONST; o[on++] = int_t; o[on++] = bit_c[k]; o[on++] = 1u << k; }
+            }
+            if (add_layer) { o[on++] = 4u << 16 | OP_VAR; o[on++] = ptr_out_int; o[on++] = layer_var; o[on++] = SC_OUTPUT; }
+            if (add_vport) { o[on++] = 4u << 16 | OP_VAR; o[on++] = ptr_out_int; o[on++] = vport_var; o[on++] = SC_OUTPUT; }
+            if (fwd_loc0) {
+                o[on++] = 4u << 16 | OP_TYPE_ARR; o[on++] = arr_v4f_t; o[on++] = v4f_t; o[on++] = len3_id;
+                o[on++] = 4u << 16 | OP_TYPE_PTR; o[on++] = ptr_in_arr_v4f; o[on++] = SC_INPUT; o[on++] = arr_v4f_t;
+                o[on++] = 4u << 16 | OP_VAR; o[on++] = ptr_in_arr_v4f; o[on++] = in_loc0; o[on++] = SC_INPUT;
+                o[on++] = 4u << 16 | OP_VAR; o[on++] = ptr_out_v4f; o[on++] = out_loc0; o[on++] = SC_OUTPUT;
+            }
+        }
+
+        if (op == OP_STORE && l == 3) {
+            int is_mask = a[0] == mask_var;
+            for (int k = 0; k < n_mask_ptrs && !is_mask; k++) is_mask = a[0] == mask_ptrs[k];
+            if (is_mask) {
+                o[on++] = 3u << 16 | OP_STORE; o[on++] = tmp_mask; o[on++] = a[1];
+                i += l;
+                continue;
+            }
+        }
+
+        if (op == OP_RET) {
+            for (int k = 0; k < 4; k++) {
+                uint32_t mv = next_id++, bv = next_id++, cv = next_id++, then_l = next_id++, merge_l = next_id++;
+                o[on++] = 4u << 16 | OP_LOAD;      o[on++] = int_t;  o[on++] = mv; o[on++] = tmp_mask;
+                o[on++] = 5u << 16 | OP_AND;       o[on++] = int_t;  o[on++] = bv; o[on++] = mv; o[on++] = bit_c[k];
+                o[on++] = 5u << 16 | OP_INE;       o[on++] = bool_t; o[on++] = cv; o[on++] = bv; o[on++] = ic[0];
+                o[on++] = 3u << 16 | OP_SEL_MERGE; o[on++] = merge_l; o[on++] = 0u;
+                o[on++] = 4u << 16 | OP_BR_COND;   o[on++] = cv; o[on++] = then_l; o[on++] = merge_l;
+                o[on++] = 2u << 16 | OP_LABEL;     o[on++] = then_l;
+                for (int v = 0; v < 3; v++) {
+                    uint32_t pin = next_id++, pos = next_id++, pout = next_id++;
+                    o[on++] = 3u << 16 | OP_STORE;  o[on++] = layer_var; o[on++] = ic[k];
+                    o[on++] = 3u << 16 | OP_STORE;  o[on++] = vport_var; o[on++] = ic[k];
+                    o[on++] = 6u << 16 | OP_ACCESS; o[on++] = ptr_in_v4f;  o[on++] = pin;  o[on++] = in_var; o[on++] = ic[v]; o[on++] = ic[0];
+                    o[on++] = 4u << 16 | OP_LOAD;   o[on++] = v4f_t;      o[on++] = pos;  o[on++] = pin;
+                    o[on++] = 5u << 16 | OP_ACCESS; o[on++] = ptr_out_v4f; o[on++] = pout; o[on++] = out_var; o[on++] = ic[0];
+                    o[on++] = 3u << 16 | OP_STORE;  o[on++] = pout; o[on++] = pos;
+                    if (fwd_loc0) {
+                        uint32_t pil = next_id++, vl = next_id++;
+                        o[on++] = 5u << 16 | OP_ACCESS; o[on++] = ptr_in_v4f; o[on++] = pil; o[on++] = in_loc0; o[on++] = ic[v];
+                        o[on++] = 4u << 16 | OP_LOAD;   o[on++] = v4f_t;      o[on++] = vl;  o[on++] = pil;
+                        o[on++] = 3u << 16 | OP_STORE;  o[on++] = out_loc0;   o[on++] = vl;
+                    }
+                    o[on++] = 1u << 16 | OP_EMIT;
+                }
+                o[on++] = 1u << 16 | OP_ENDPRIM;
+                o[on++] = 2u << 16 | OP_BR;    o[on++] = merge_l;
+                o[on++] = 2u << 16 | OP_LABEL; o[on++] = merge_l;
+            }
+        }
+
+        if (op == OP_ENTRY_POINT && a[0] == MODEL_GEOMETRY) {
+            uint64_t ep_at = on;
+            o[on++] = 0;   // length patched below
+            uint32_t wi = 0;
+            for (; wi < l - 1; wi++) {
+                if (w[i + 1 + wi] == mask_var) continue;
+                o[on++] = w[i + 1 + wi];
+            }
+            if (add_layer) o[on++] = layer_var;
+            if (add_vport) o[on++] = vport_var;
+            if (fwd_loc0) { o[on++] = in_loc0; o[on++] = out_loc0; }
+            o[ep_at] = (uint32_t)(on - ep_at) << 16 | OP_ENTRY_POINT;
+        } else if (op == OP_EXEC_MODE && l == 4 && a[1] == EXEC_OUTPUT_VERTICES) {
+            o[on++] = 4u << 16 | OP_EXEC_MODE; o[on++] = a[0]; o[on++] = EXEC_OUTPUT_VERTICES; o[on++] = 12u;
+        } else {
+            memcpy(o + on, w + i, l * 4);
+            on += l;
+        }
+
+        if (op == OP_CAP && !inserted_cap) {
+            inserted_cap = 1;
+            o[on++] = 2u << 16 | OP_CAP; o[on++] = CAP_MULTI_VPORT;
+        }
+
+        if (op == OP_LABEL && !inserted_var) {
+            inserted_var = 1;
+            o[on++] = 4u << 16 | OP_VAR; o[on++] = ptr_fn_int; o[on++] = tmp_mask; o[on++] = SC_FUNC;
+        }
+        i += l;
+    }
+
+    o[3] = next_id;
+    *out_n = on;
+    return o;
+}
+
 static VkShaderModule make_module(const uint32_t *w, uint64_t words) {
-    uint64_t fixed_n = 0, gs_n = 0, layer_n = 0, nan_n = 0;
+    uint64_t fixed_n = 0, gs_n = 0, vpm_n = 0, layer_n = 0, nan_n = 0;
     uint32_t *fixed = spirv_fixup(w, words, &fixed_n);
     if (fixed) w = fixed, words = fixed_n;
     uint32_t *gs = !vk_ctx()->has_gs_passthrough ? lower_gs_passthrough(w, words, &gs_n) : NULL;
     if (gs) free(fixed), fixed = gs, w = gs, words = gs_n;
+    uint32_t *vpm = (!vk_ctx()->has_viewport_array2 && vk_ctx()->use_multi_viewport_shadows)
+                        ? lower_gs_viewport_mask(w, words, &vpm_n)
+                        : NULL;
+    if (vpm) free(fixed), fixed = vpm, w = vpm, words = vpm_n;
     uint32_t *layer = vk_ctx()->has_viewport_array2 ? viewport_relative_layer(w, words, &layer_n) : NULL;
     if (layer) free(fixed), fixed = layer, w = layer, words = layer_n;
     uint32_t *nan = nan_guard(w, words, &nan_n);
@@ -2384,7 +2623,7 @@ typedef struct Job {
     GKey k;
 } Job;
 
-#define MAX_WORKERS 4
+#define MAX_WORKERS 8
 
 static struct {
     int on;                            // set once by vk_pipeline_async_enable, before the replay runs
@@ -2432,6 +2671,7 @@ static struct {
     uint32_t left;                     // prebuild jobs queued or running
     uint32_t built, failed, promoted;
     double t0;                         // now_ms() when the prebuild started
+    double deadline_ms;                // T3: 0 = unlimited; >0 = stop blocking boot at this timestamp
 } K = {.io = PLAT_MUTEX_INIT};
 
 static uint64_t rec_hash(const KeyRec *r) {
@@ -2648,11 +2888,11 @@ static void pipe_worker(void *arg) {
     return;
 }
 
-// Starts the pool on first use: a quarter of the logical processors, 2 to 4. Caller holds P.lock.
+// Starts the pool on first use: half of the logical processors, 2 to MAX_WORKERS. Caller holds P.lock.
 static int workers_start(void) {
     if (A.threads) return 1;
     uint32_t cpus = plat_cpu_usable();
-    int n = cpus / 4 < 2 ? 2 : cpus / 4 > MAX_WORKERS ? MAX_WORKERS : (int)(cpus / 4);
+    int n = cpus / 2 < 2 ? 2 : cpus / 2 > MAX_WORKERS ? MAX_WORKERS : (int)(cpus / 2);
     for (int i = 0; i < n; i++) {
         PlatThread *t = plat_thread_new(pipe_worker, (void *)(intptr_t)A.threads, "pipe worker");
         if (!t) break;
@@ -2670,7 +2910,7 @@ void vk_pipeline_async_enable(void) {
         if (strcmp(e, "0") != 0) return;
     } else {
         VkCtx *vc = vk_ctx();
-        if (vc && vc->props.vendorID == 0x10de) return;
+        if (vc && vc->props.vendorID == 0x10de && !vk_caps.gpl) return;
     }
     A.on = 1;
 }
@@ -2858,16 +3098,18 @@ static VkPipeline graphics(const VkPipeState *s, const VkPipeInfo **info, int as
     // optimised build, from the low queue. Other draws leave the libraries to the job and are skipped meanwhile.
     // MTF_PIPE_WAIT=draw builds them on this thread one after the other instead, as before; MTF_GPL_DRAW_BUILD=0
     // leaves them to the job.
-    static int draw_build = -1;
+    static int draw_build = -1, draw_link = -1;
     if (draw_build < 0) {
         const char *e = cfg_get("MTF_GPL_DRAW_BUILD");
         draw_build = !(e && !strcmp(e, "0"));
+        const char *el = cfg_get("MTF_GPL_DRAW_LINK");
+        draw_link = (el && *el) ? strcmp(el, "0") != 0 : !vk_caps.amd;
         rt_log("vk_pipeline: a draw that waits for its pipeline %s", !draw_build ? "leaves its libraries to its job"
                : U.on ? "has its libraries built in parallel on the workers, ahead of other jobs"
                       : "builds its libraries itself (MTF_PIPE_WAIT=draw)");
     }
     double end = wait_ms ? now_ms() + wait_ms : 0;
-    if (p && p->building && P.gpl && !p->info.pipeline && !p->fast_tried && p->lay) {
+    if (p && p->building && P.gpl && !p->info.pipeline && !p->fast_tried && p->lay && wait_ms && draw_link) {
         int final = 0, build = wait_ms != 0 && draw_build;
         uint64_t p0 = perf_begin(), t0 = qpc();
         if (build && U.on) {
@@ -2931,7 +3173,7 @@ static int id_cmp(const void *x, const void *y) { return memcmp(x, y, 32); }
 static void warm_builder(void *arg) {
     (void)arg;
     plat_mutex_lock(&P.lock);
-    while (A.low) {
+    while (A.low && (!K.deadline_ms || now_ms() < K.deadline_ms)) {
         Job *j = A.low;
         if ((A.low = j->next)) A.low->prev = NULL;
         else A.low_tail = NULL;
@@ -3035,19 +3277,28 @@ void vk_pipeline_prewarm(void) {
     PlatThread *t[64];
     int nt = 0;
     const char *ps = cfg_get("MTF_PIPE_SYNC");
-    int single = !(ps && !strcmp(ps, "0")) && vk_ctx()->props.vendorID == 0x10de;
+    int single = (!(ps && !strcmp(ps, "0")) && vk_ctx()->props.vendorID == 0x10de && !vk_caps.gpl) ||
+                 (ps && *ps && strcmp(ps, "0") != 0);
+    int block_ms = cfg_int("MTF_PIPE_PREWARM_BLOCK_MS");
+    K.deadline_ms = (block_ms >= 0 && !single) ? now_ms() + (double)block_ms : 0.0;
     if (queued)
-        rt_log("vk_pipeline: prewarming %u pipelines on %s (first launch or GPU/driver change may take a few seconds)...",
-               queued, vk_ctx()->props.deviceName);
-    for (int i = 0; !single && i < cpus && i < 64 && queued; i++)
+        rt_log("vk_pipeline: prewarming %u pipelines on %s (budget %d ms)...",
+               queued, vk_ctx()->props.deviceName, block_ms);
+    for (int i = 0; !single && block_ms != 0 && i < cpus && i < 64 && queued; i++)
         if ((t[nt] = plat_thread_new(warm_builder, NULL, "pipe prewarm"))) nt++;
-    if (!nt) warm_builder(NULL);
+    if (!nt && block_ms != 0) warm_builder(NULL);
     for (int i = 0; i < nt; i++) plat_thread_join(t[i]);
     plat_mutex_lock(&P.lock);
-    while (K.left) plat_cond_wait(&done_cv, &P.lock);   // jobs a pool worker took
-    rt_log("vk_pipeline: prewarm: %zu records in %s: %u pipelines built, %u failed, %u already built, %u dropped "
-           "(shader neither cached nor stored); shaders %.0f ms, pipelines %.0f ms on %d threads, total %.0f ms",
-           n, K.path, K.built, K.failed, known, dropped, t1 - t0, now_ms() - t1, nt, now_ms() - t0);
+    double now;
+    while (K.left && (!K.deadline_ms || (now = now_ms()) < K.deadline_ms))
+        plat_cond_wait_ms(&done_cv, &P.lock, K.deadline_ms ? (uint32_t)(K.deadline_ms - now) + 1 : 100);
+    if (K.left)
+        rt_log("vk_pipeline: prewarm: %u pipelines built in %.0f ms (%u remaining continuing in background)",
+               K.built, now_ms() - t1, K.left);
+    else
+        rt_log("vk_pipeline: prewarm: %zu records in %s: %u pipelines built, %u failed, %u already built, %u dropped "
+               "(shader neither cached nor stored); shaders %.0f ms, pipelines %.0f ms on %d threads, total %.0f ms",
+               n, K.path, K.built, K.failed, known, dropped, t1 - t0, now_ms() - t1, nt, now_ms() - t0);
     free(K.file);
     K.file = NULL;
     plat_mutex_unlock(&P.lock);
@@ -3058,10 +3309,11 @@ void vk_pipeline_prewarm(void) {
 static void prebuild_start(void) {
     plat_mutex_lock(&P.lock);
     const char *e = cfg_get("MTF_PIPE_SYNC");
-    if ((!e || !*e) && A.on && vk_ctx()->props.vendorID == 0x10de) {
-        // Background pipe_worker builds (both compile_pipeline and GPL lib_create) hit nvoglv64.dll+0x10ea90 (0x8 read) on NVIDIA.
+    if (((!e || !*e) && A.on && vk_ctx()->props.vendorID == 0x10de && !vk_caps.gpl) ||
+        (e && *e && strcmp(e, "0") != 0 && A.on)) {
         A.on = 0;
-        rt_log("vk_pipeline: synchronous pipeline builds on NVIDIA (MTF_PIPE_SYNC=0 overrides)");
+        rt_log("vk_pipeline: synchronous pipeline builds (%s)",
+               (e && *e) ? "MTF_PIPE_SYNC" : "NVIDIA without GPL; MTF_PIPE_SYNC=0 overrides");
     }
     if (K.file && !K.warm) {
         rt_log("vk_pipeline: prebuild off%s; %zu records not built",

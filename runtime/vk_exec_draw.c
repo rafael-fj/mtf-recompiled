@@ -222,6 +222,7 @@ typedef struct DrawCtx {
     VkDescSlot bind_d[MAX_DESC];
     VkBufferView bind_bv[MAX_DESC];
     uint64_t wait_frame, wait_left_ns;
+    uint64_t oneshot_frame, oneshot_left_ns;
 } DrawCtx;
 
 static DrawCtx draw_main;
@@ -2131,7 +2132,7 @@ static uint32_t pass_viewports(const VkExec *ex) {
     uint32_t n = ex->vp_n < ex->pass_layers ? ex->vp_n : ex->pass_layers, most = c->props.limits.maxViewports;
     if (most > 16) most = 16;
     if (n > most) n = most;
-    return c->has_viewport_array2 && n > 1 ? n : 1;
+    return (c->has_viewport_array2 || c->use_multi_viewport_shadows) && n > 1 ? n : 1;
 }
 
 static void record_fixed(VkExec *ex) {
@@ -2387,7 +2388,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
         const GfxShader *gs = shader_for(ex, NVN_STAGE_GS, &has_gs, NULL, 1);
         if (has_gs && gs && geometry_on()) {
             const VkCtx *vc = vk_ctx();
-            if (!vc->has_viewport_array2) {
+            if (!vc->has_viewport_array2 && !vc->use_multi_viewport_shadows) {
                 uint64_t nw = 0;
                 const uint32_t *w = gfx_shader_spirv(gs, &nw);
                 int bad = 0;
@@ -2555,20 +2556,27 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     // fragment shader and build fast. The waits share 50 ms per presented frame (MTF_PIPE_SKIP=fullscreen skips the
     // full-screen ones instead). A one-shot draw waits without that budget. Everything else is skipped while its pipeline
     // is built.
-    static int shadow_wait = -1;
+    static int shadow_wait = -1, oneshot_budget_ms = -1;
     if (shadow_wait < 0) shadow_wait = rt_knob("SHADOW_WAIT", "1");
+    if (oneshot_budget_ms < 0) oneshot_budget_ms = rt_knob("ONESHOT_BUDGET_MS", "16");
     int depth_only = ex->pass_ncolor == 0 && ex->depth.image != 0;
     uint64_t *wait_frame_p = &dc_cur()->wait_frame, *wait_left_p = &dc_cur()->wait_left_ns;
+    uint64_t *oneshot_frame_p = &dc_cur()->oneshot_frame, *oneshot_left_p = &dc_cur()->oneshot_left_ns;
     #define wait_frame (*wait_frame_p)
     #define wait_left_ns (*wait_left_p)
+    #define oneshot_frame (*oneshot_frame_p)
+    #define oneshot_left_ns (*oneshot_left_p)
     uint32_t wait_ms = 0;
     uint64_t t0 = 0;
+    uint64_t cur_frame = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED);
     if (oneshot > 0) {
-        wait_ms = ONESHOT_WAIT_MS;
+        if (cur_frame != oneshot_frame)
+            oneshot_frame = cur_frame, oneshot_left_ns = (uint64_t)oneshot_budget_ms * 1000000ULL;
+        wait_ms = (uint32_t)(oneshot_left_ns / 1000000ULL);
+        if (wait_ms) t0 = kern_now_ns();
     } else if ((skip < 2 && count <= 6 && (uint64_t)sc.extent.width * sc.extent.height * 2 >= (uint64_t)ex->pass_w * ex->pass_h) ||
                (depth_only && shadow_wait)) {
-        uint64_t f = __atomic_load_n(&gfx_counters.frames, __ATOMIC_RELAXED);
-        if (f != wait_frame) wait_frame = f, wait_left_ns = 50000000;
+        if (cur_frame != wait_frame) wait_frame = cur_frame, wait_left_ns = 50000000;
         wait_ms = (uint32_t)(wait_left_ns / 1000000);
         if (wait_ms) t0 = kern_now_ns();
     }
@@ -2587,19 +2595,31 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
         p = vk_pipeline_graphics_async(&s, &info, &pending, wait_ms);
         if (t0) {
             uint64_t spent = kern_now_ns() - t0;
-            wait_left_ns = spent < wait_left_ns ? wait_left_ns - spent : 0;
+            if (oneshot > 0)
+                oneshot_left_ns = spent < oneshot_left_ns ? oneshot_left_ns - spent : 0;
+            else
+                wait_left_ns = spent < wait_left_ns ? wait_left_ns - spent : 0;
         }
         why = oneshot > 0 ? "one-shot, shader" : wait_ms ? "full-screen" : NULL;
         if (pending && oneshot < 0 && !vk_exec_targets_recent(ex, skip >= 1)) {
             perf_count(PERF_CNT_ONESHOT_WAIT);
             why = "one-shot";
-            if (!w0) w0 = kern_now_ns();
-            p = vk_pipeline_graphics_async(&s, &info, &pending, ONESHOT_WAIT_MS);
+            if (cur_frame != oneshot_frame)
+                oneshot_frame = cur_frame, oneshot_left_ns = (uint64_t)oneshot_budget_ms * 1000000ULL;
+            uint32_t ow = (uint32_t)(oneshot_left_ns / 1000000ULL);
+            uint64_t ot0 = ow ? kern_now_ns() : 0;
+            if (!w0) w0 = ot0;
+            p = vk_pipeline_graphics_async(&s, &info, &pending, ow);
+            if (ot0) {
+                uint64_t spent = kern_now_ns() - ot0;
+                oneshot_left_ns = spent < oneshot_left_ns ? oneshot_left_ns - spent : 0;
+            }
         }
         PM.valid = !pending && p && info;
         if (PM.valid) PM.s = s, PM.info = info;
     }
     uint64_t waited = w0 ? kern_now_ns() - w0 : 0;
+    if (waited >= 16000000) perf_note_pipe_wait(waited);
     static int wait_logs;
     if (why && waited >= 2000000 && wait_logs < 200) {
         char tg[512];
@@ -2677,6 +2697,8 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     vk_exec_oq_draw(ex);
     #undef wait_frame
     #undef wait_left_ns
+    #undef oneshot_frame
+    #undef oneshot_left_ns
     return 1;
 }
 

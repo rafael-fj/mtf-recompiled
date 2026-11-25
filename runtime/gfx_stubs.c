@@ -157,9 +157,86 @@ void perf_present(uint64_t frame) {
         __atomic_store_n(&perf_on, perf_wanted(), __ATOMIC_RELAXED);   // MTF_TRACE=perf: on from the first present
 }
 
+static volatile int64_t perf_pipe_waits_16ms;
+
+void perf_note_pipe_wait(uint64_t waited_ns) {
+    if (waited_ns >= 16000000ull) plat_inc64(&perf_pipe_waits_16ms);
+}
+
+#define PLOG_BINS 1024
+static struct {
+    int inited, on;
+    uint32_t win_bins[PLOG_BINS], tot_bins[PLOG_BINS];
+    uint64_t win_n, win_sum, win_worst, win_over20, win_pwait0;
+    uint64_t tot_n, tot_sum, tot_worst, tot_over20, tot_pwait0;
+} plog;
+
+static void plog_lows(const uint32_t *bins, uint64_t total, float *low1, float *low01) {
+    *low1 = *low01 = -1.0f;
+    if (total < 100) return;
+    uint64_t cut1 = (total + 99) / 100, cut01 = (total + 999) / 1000, acc = 0;
+    for (int b = PLOG_BINS - 1; b >= 0 && *low1 < 0; b--) {
+        acc += bins[b];
+        float fps = 1000.0f / ((b + 1) * 0.25f);
+        if (*low01 < 0 && acc >= cut01) *low01 = fps;
+        if (acc >= cut1) *low1 = fps;
+    }
+}
+
+static void plog_emit(const char *tag, const uint32_t *bins, uint64_t n, uint64_t sum, uint64_t worst,
+                      uint64_t over20, uint64_t pw) {
+    if (!n || !sum) return;
+    double avg_ms = (double)sum / (double)n / 1e6;
+    double avg_fps = avg_ms > 0 ? 1000.0 / avg_ms : 0;
+    float l1 = -1, l01 = -1;
+    plog_lows(bins, n, &l1, &l01);
+    rt_log("perf: %s (%llu frames): avg %.1f fps (%.2f ms), 1%% low %.1f fps, 0.1%% low %.1f fps, "
+           "worst %.1f ms, over20ms %llu, pipe_waits>16ms %llu",
+           tag, (unsigned long long)n, avg_fps, avg_ms, l1, l01, worst / 1e6,
+           (unsigned long long)over20, (unsigned long long)pw);
+}
+
+static void perf_log_flush(void) {
+    if (!plog.on || !plog.tot_n) return;
+    uint64_t cur_pw = (uint64_t)__atomic_load_n(&perf_pipe_waits_16ms, __ATOMIC_RELAXED);
+    plog_emit("session", plog.tot_bins, plog.tot_n, plog.tot_sum, plog.tot_worst, plog.tot_over20,
+              cur_pw - plog.tot_pwait0);
+    plog.tot_n = 0;
+}
+
 void perf_flip(void) {
     static uint64_t since, frames, shown, last;
     uint64_t now = kern_now_ns();
+    if (!plog.inited) {
+        plog.inited = 1;
+        plog.on = cfg_bool("MTF_PERF_LOG");
+        if (plog.on) {
+            plog.tot_pwait0 = plog.win_pwait0 = (uint64_t)__atomic_load_n(&perf_pipe_waits_16ms, __ATOMIC_RELAXED);
+            atexit(perf_log_flush);
+        }
+    }
+    if (plog.on && last) {
+        uint64_t d = now - last;
+        uint64_t bin = d / 250000ull;
+        uint32_t bi = (uint32_t)(bin < PLOG_BINS ? bin : PLOG_BINS - 1);
+        plog.win_bins[bi]++;
+        plog.tot_bins[bi]++;
+        plog.win_n++;
+        plog.tot_n++;
+        plog.win_sum += d;
+        plog.tot_sum += d;
+        if (d > plog.win_worst) plog.win_worst = d;
+        if (d > plog.tot_worst) plog.tot_worst = d;
+        if (d > 20000000ull) plog.win_over20++, plog.tot_over20++;
+        if (plog.win_n == 600) {
+            uint64_t cur_pw = (uint64_t)__atomic_load_n(&perf_pipe_waits_16ms, __ATOMIC_RELAXED);
+            plog_emit("window", plog.win_bins, plog.win_n, plog.win_sum, plog.win_worst, plog.win_over20,
+                      cur_pw - plog.win_pwait0);
+            memset(plog.win_bins, 0, sizeof plog.win_bins);
+            plog.win_n = plog.win_sum = plog.win_worst = plog.win_over20 = 0;
+            plog.win_pwait0 = cur_pw;
+        }
+    }
     if (__atomic_load_n(&perf_overlay, __ATOMIC_RELAXED))              // the overlay's only cost while it is off
         perfmon_frame(now, last ? now - last : 0, perf_frame_ns,
                       (uint64_t)__atomic_exchange_n(&perf_frame_replay_ns, 0, __ATOMIC_RELAXED),

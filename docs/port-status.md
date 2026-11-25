@@ -1,8 +1,8 @@
 # MTF Recomp — Port Status
 
-**Last updated:** 2026-11-24  
+**Last updated:** 2026-11-25  
 **Target game:** *Mario Tennis Fever* (Switch 2 / `Ounce`, Title ID `0400D4201C6EA000`, Update `1.1.1` / `v327680`)  
-**Current phase:** `v0.1.7` — Playable PC Port (NVIDIA 96% / AMD 82%) + Portable `GeometryShaderPassthroughNV` Lowering + Fixed HDR10 Calibration & Draggable Sliders + RecompLauncher `.nup` Support (PR #15) + Self-Contained Windows Installer. See [status-details.md](status-details.md) for the full percentage breakdown.
+**Current phase:** `v0.1.8` (Optimization Sprint) — Playable PC Port (NVIDIA 96% / AMD 86%) + Async GPL on NVIDIA + Non-Blocking Prewarm (`3s` budget) + `MultiViewport` Shadow Cascades (`SHADOW_SCALE >= 2`) + Hardware-Aware `Recommended` Preset + Frame-Time Telemetry (`MTF_PERF_LOG=1`). See [status-details.md](status-details.md) for the full percentage breakdown.
 
 ## Module Status
 
@@ -20,7 +20,7 @@
 | ARM64 Lifter (`recomp/`) | **Ready** | 0 unsupported on `main`+`sdk`, 1 `ldst` on `nro0`; 119,955 Unicorn diff cases passed |
 | Binary Index (`tools/analisis/bindb.py`) | **Ready** | `build/bindb.sqlite` indexes 98,560 fns, 29,422 syms, 573,750 calls, 54,969 strings |
 | Horizon Kernel & `ro::LoadModule` | **Ready** | Boots `main` + `sdk` + `nro0` cleanly to gameplay |
-| NVN2 Front-End & Vulkan Backend | **Playable (NV 96% / AMD 82%)** | Vulkan 1.3 renderer, Gate F5 (`0` validation errors on NVIDIA), portable `GeometryShaderPassthroughNV` -> standard GS lowering (`Location 0` + `CullDistance`), DLAA/DLSS auto-disabled when unsupported, HDR10 (`hdr_compose.comp` + `Render Scale 100%`/`Bilinear` locks), optical-flow Frame Gen, FSR 1; A/B/Y ball-trail interior still missing on AMD RDNA 2 (`24.30.66`) |
+| NVN2 Front-End & Vulkan Backend | **Playable (NV 96% / AMD 86%)** | Vulkan 1.3 renderer, Gate F5 (`0` validation errors on NVIDIA), async GPL on NVIDIA (`8` workers), non-blocking boot prewarm (`MTF_PIPE_PREWARM_BLOCK_MS=3000`), per-frame `one-shot` budget (`16 ms`), `GeometryShaderPassthroughNV` & `ViewportMaskNV` (`MultiViewport`, `SHADOW_SCALE >= 2`) lowering, hardware-aware `Recommended` preset, HDR10, Frame Gen, FSR 1; A/B/Y ball-trail interior still missing on AMD RDNA 2 (`24.30.66`) |
 | Shader Pipeline (`CRA.` → SPIR-V) | **Ready (F4+F5)** | **35,045 / 35,045** shaders translated to SPIR-V (0 failed); `ensure_storage_caps` injects `StorageImageRead/WriteWithoutFormat`; `nvn2_offline_get` loads offline `.spv` + `.res.json` |
 | Audio (`audren` REV15) & Video (`ov_codec`) | **Ready (F3)** | REV15 `audren` + SDL3 (`48000 Hz x240`, 96 voices) & `libvpx` VP9 (`2560x1440`) active |
 | Multiplayer & Browser Streaming (`F1 -> Multiplayer`) | **Ready** | Local `P1..P4` input routing + WebRTC UDP DataChannel / Cloudflare Tunnel / Local Host browser streaming (`AV1` on Chromium / `H.264` on Firefox + `Opus`), automatic WebSocket fallback, `Performance`/`Balanced`/`Quality` presets, 3s player connect/disconnect toasts |

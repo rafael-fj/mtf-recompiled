@@ -340,7 +340,6 @@ static int create_device(void) {
     else rt_log("vk: no VK_NV_geometry_shader_passthrough: layer passthrough geometry shaders will be lowered");
     // the shadow casters' broadcast to the cascades, one viewport and layer each (ViewportMaskNV)
     if (has_ext(ep, ne, "VK_NV_viewport_array2")) g_vk.has_viewport_array2 = 1, ext[n_ext++] = "VK_NV_viewport_array2";
-    else rt_log("vk: no VK_NV_viewport_array2: shadow cascades past the first stay empty");
     if (has_ext(ep, ne, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME)) { g_vk.has_memory_budget = 1; ext[n_ext++] = VK_EXT_MEMORY_BUDGET_EXTENSION_NAME; }
     // a UNORM view of the sRGB swapchain images, for the menu overlay (gfx_present.c): ImGui blends in sRGB code values
     if (has_ext(ep, ne, VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME)) {
@@ -404,6 +403,7 @@ static int create_device(void) {
                       : "unavailable (no VK_EXT_device_address_binding_report)");
     g_vk.has_buffer_device_address = c->f12.bufferDeviceAddress;
     g_vk.has_astc_ldr = h->textureCompressionASTC_LDR;
+    g_vk.has_multi_viewport = h->multiViewport;
     {
         const char *e = cfg_get("MTF_FEEDBACK");
         int layout_ok = has_fbl && has_lr && c->fbl.attachmentFeedbackLoopLayout && c->lr.dynamicRenderingLocalRead;
@@ -494,12 +494,51 @@ static void destroy_all(void) {
 
 long vk_validation_errors_total(void) { return g_errors_total + (g_ready ? g_vk.validation_errors : 0); }
 
+static void apply_recommended_preset(void) {
+    if (cfg_get("MTF_GRAPHICS_PRESET") && strcmp(cfg_value("MTF_GRAPHICS_PRESET"), "recommended") != 0) return;
+    uint64_t vram_mib = 0;
+    for (uint32_t i = 0; i < g_vk.mem_props.memoryHeapCount; i++) {
+        if (g_vk.mem_props.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+            uint64_t mib = g_vk.mem_props.memoryHeaps[i].size >> 20;
+            if (mib > vram_mib) vram_mib = mib;
+        }
+    }
+    int discrete = g_vk.props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+    int dlaa = vk_dlaa_available();
+    const char *tier = dlaa ? "rtx-dlaa" : (discrete && vram_mib >= 6144) ? "discrete-high"
+                     : discrete ? "discrete-mid" : "integrated-low";
+    const char *smaa = dlaa ? "off" : (discrete && vram_mib >= 6144) ? "high" : discrete ? "medium" : "off";
+    const char *fxaa = dlaa ? "0" : "1";
+    const char *aniso = dlaa || (discrete && vram_mib >= 6144) ? "16" : discrete ? "8" : "4";
+    const char *shadow = (dlaa || discrete) ? "2" : "1";
+    if (!cfg_get("MTF_DLAA") && dlaa) cfg_set("MTF_DLAA", "1");
+    if (!cfg_get("MTF_DLSS") && dlaa) cfg_set("MTF_DLSS", "dlaa");
+    if (!cfg_get("MTF_SMAA")) cfg_set("MTF_SMAA", smaa);
+    if (!cfg_get("MTF_FXAA")) cfg_set("MTF_FXAA", fxaa);
+    if (!cfg_get("MTF_ANISO")) cfg_set("MTF_ANISO", aniso);
+    if (!cfg_get("MTF_SHADOW_SCALE")) cfg_set("MTF_SHADOW_SCALE", shadow);
+    if (!cfg_get("MTF_SHARPNESS")) cfg_set("MTF_SHARPNESS", "50");
+    rt_log("cfg: recommended preset (%s, %llu MiB VRAM): DLAA=%s SMAA=%s ANISO=%s SHADOW_SCALE=%s",
+           tier, (unsigned long long)vram_mib, cfg_value("MTF_DLAA"), cfg_value("MTF_SMAA"),
+           cfg_value("MTF_ANISO"), cfg_value("MTF_SHADOW_SCALE"));
+}
+
 int vk_init(void) {
     plat_mutex_lock(&g_lock);
     if (!g_ready) {
         memset(&g_vk, 0, sizeof g_vk);
-        if (create_instance() && pick_device() && create_device()) g_ready = 1, vk_headroom_start(), vk_dlaa_init();
-        else destroy_all();
+        if (create_instance() && pick_device() && create_device()) {
+            g_ready = 1, vk_headroom_start(), vk_dlaa_init(), apply_recommended_preset();
+            g_vk.use_multi_viewport_shadows =
+                !g_vk.has_viewport_array2 && g_vk.has_multi_viewport && cfg_int("MTF_SHADOW_SCALE") >= 2;
+            if (!g_vk.has_viewport_array2)
+                rt_log("vk: no VK_NV_viewport_array2: %s",
+                       g_vk.use_multi_viewport_shadows
+                           ? "lowering ViewportMaskNV shadow cascades via MultiViewport (SHADOW_SCALE >= 2)"
+                           : "shadow cascades past the first stay empty (SHADOW_SCALE=1 / Low mode)");
+        } else {
+            destroy_all();
+        }
     }
     int ok = g_ready;
     plat_mutex_unlock(&g_lock);
