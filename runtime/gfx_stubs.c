@@ -62,6 +62,8 @@ uint64_t frame_step_cap_ns(void) {
 
 void frame_step_present(uint64_t display_ns, int interval) {
     (void)display_ns, (void)interval;
+    extern uint8_t rt_patch_on[];
+    rt_patch_on[0] = (uint8_t)cfg_bool("MTF_DYNAMIC_FPS");
     int t = fps_limit_target();
     if (t == 60 && gfx_vsync_hz() != 60) t = gfx_vsync_hz();
     uint32_t want = t > 0 ? (uint32_t)t : 10000u;
@@ -75,6 +77,83 @@ void frame_step_present(uint64_t display_ns, int interval) {
             }
         }
     }
+}
+
+uint8_t rt_patch_on[16] = {0};
+
+static int s_skip_tick = 0;
+
+void ov_dynamic_fps_sync(Cpu *c) {
+    GuestFn fn = rt_dispatch_lookup(0x7002fa8580ull);
+    if (!fn) return;
+    if (!cfg_bool("MTF_DYNAMIC_FPS")) {
+        s_skip_tick = 0;
+        fn(c);
+        return;
+    }
+
+    static int64_t s_prev_ns = 0, s_win_start_ns = 0, s_accum_ns = 0;
+    static int s_credit = 0;
+    static uint64_t s_waits = 0, s_skips = 0, s_win_ticks = 0;
+    enum { TICK_NS = 16666667LL, MAX_CREDIT = 2 };
+
+    int64_t enter_ns = (int64_t)kern_now_ns();
+    if (s_win_start_ns == 0) s_win_start_ns = enter_ns;
+    s_win_ticks++;
+
+    if (s_credit > 0) {
+        s_credit--;
+        s_skips++;
+        s_skip_tick = 1;
+        rt_patch_on[1] = 1;
+        return;
+    }
+
+    s_skip_tick = 0;
+    rt_patch_on[1] = 0;
+    fn(c);
+    s_waits++;
+
+    int64_t now = (int64_t)kern_now_ns();
+    if (s_prev_ns != 0) {
+        int64_t dt = now - s_prev_ns;
+        if (dt > 100000000LL) s_accum_ns = 0;
+        else if (dt > 0) {
+            s_accum_ns += dt - TICK_NS;
+            if (s_accum_ns < 0) s_accum_ns = 0;
+            int extra = (int)(s_accum_ns / TICK_NS);
+            if (extra > MAX_CREDIT) { extra = MAX_CREDIT; s_accum_ns = 0; }
+            else if (extra > 0) s_accum_ns -= (int64_t)extra * TICK_NS;
+            s_credit = extra;
+        }
+    }
+    s_prev_ns = now;
+    if (now - s_win_start_ns >= 2000000000LL) {
+        double secs = (double)(now - s_win_start_ns) / 1e9;
+        double tps = (double)s_win_ticks / secs;
+        rt_log("dynamic_fps: %.1f ticks/s | waits=%llu skips=%llu credit=%d",
+               tps, (unsigned long long)s_waits, (unsigned long long)s_skips, s_credit);
+        s_win_start_ns = now;
+        s_win_ticks = 0;
+    }
+}
+
+void ov_dynamic_fps_present(Cpu *c) {
+    if (s_skip_tick) return;
+    GuestFn fn = rt_dispatch_lookup(0x7001e25440ull);
+    if (fn) fn(c);
+}
+
+void ov_dynamic_fps_flush(Cpu *c) {
+    if (s_skip_tick) return;
+    GuestFn fn = rt_dispatch_lookup(0x7001e254f4ull);
+    if (fn) fn(c);
+}
+
+void ov_dynamic_fps_acquire(Cpu *c) {
+    if (s_skip_tick) c->x[1] = 0;
+    GuestFn fn = rt_dispatch_lookup(0x7002fa2504ull);
+    if (fn) fn(c);
 }
 
 // ---- performance counters: the render thread's waits per frame, the event counts and the GPU's busy time, taken while

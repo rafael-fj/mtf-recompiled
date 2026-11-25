@@ -9,6 +9,7 @@
   <a href="https://github.com/rafael-fj/mtf-recompiled/releases/latest"><b>Download</b></a> ·
   <a href="#get-started">Get started</a> ·
   <a href="docs/port-status.md">Status</a> ·
+  <a href="docs/faq.md"><b>FAQ</b></a> ·
   <a href="#multiplayer--browser-remote-play-f1---multiplayer">Multiplayer</a> ·
   <a href="https://github.com/rafael-fj/mtf-recompiled/issues">Issues</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
@@ -36,7 +37,7 @@
 ## Features
 
 - **Full game from your own copy:** Adventure, Tournament, Trial Towers, Free Play, Mix It Up, and local multiplayer.
-- **High Frame Rates & Frame Generation:** `60 FPS` native simulation, unlocked engine `FPS_LIMIT` (`30`–`Uncapped`), and optical-flow Frame Generation (`120`, monitor refresh e.g. `144 Hz`, or `unlimited`).
+- **High Frame Rates, Dynamic FPS & Frame Generation:** `60 FPS` native simulation, **Dynamic FPS** (`F1 -> Screen`) to keep `60 Hz` real-time speed when rendering drops below 60 FPS (ideal for iGPUs/low-spec PCs), unlocked engine `FPS_LIMIT` (`30`–`Uncapped`), and optical-flow Frame Generation (`120`, monitor refresh e.g. `144 Hz`, or `unlimited`).
 - **High Resolution & Upscaling:** `720p` to `8K (4320p)`, smart `auto` matching your display, `50%`–`200%` render scale, AMD FSR 1, Bilinear, HDR10, and NVIDIA DLAA/DLSS.
 - **Controllers & Dynamic Prompts:** Plug-and-play SDL3 gamepad support (Nintendo Switch, Xbox, PlayStation), full keyboard/gamepad remapping (`F1 -> Controls`), and live-switching button prompt icons matching your active input device.
 - **In-Game Overlay (`F1` / `Esc` / `Minus+Plus`):** Dear ImGui settings menu in English and Brazilian Portuguese (`pt-BR`), performance monitor, and `F1 -> Cheats` (in-memory toggles to unlock characters, outfits, rackets, courts, and cups/modes for instant multiplayer without altering your save).

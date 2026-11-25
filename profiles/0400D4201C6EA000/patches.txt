@@ -1,0 +1,8 @@
+# Code patches for Mario Tennis Fever (0400D4201C6EA000 v1.1.1)
+set dynamic_fps MTF_DYNAMIC_FPS 0
+set skip_spin   MTF_DYNAMIC_FPS 0
+host dynamic_fps nro 11f8578 97fec002 ov_dynamic_fps_sync
+host dynamic_fps nro 11f9394 97b8b02b ov_dynamic_fps_present
+site skip_spin   nro 11f9658 1400000a 1400002b
+host dynamic_fps nro 11f98b4 97b8af10 ov_dynamic_fps_flush
+host dynamic_fps nro 11f98d0 97fea30d ov_dynamic_fps_acquire
