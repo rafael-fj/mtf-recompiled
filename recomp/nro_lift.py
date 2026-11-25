@@ -74,6 +74,9 @@ def recompile_nro(exefs: Path, nro_path: Path, output_dir: Path, jobs: int = 1) 
             raise ValueError("NRO plus BSS exceeds the reserved guest address range")
         command = [sys.executable, str(GENERATOR), "--exefs", str(stage_exefs), "--out", str(output_dir),
                    "--modules", "nro", "--jobs", str(jobs)]
+        patches_file = PROJECT_ROOT / "profiles" / "0400D4201C6EA000" / "patches.txt"
+        if patches_file.is_file():
+            command.extend(["--patches", str(patches_file)])
         subprocess.run(command, cwd=PROJECT_ROOT, check=True)
         nso = Nso(str(stage_exefs / "nro"))
 

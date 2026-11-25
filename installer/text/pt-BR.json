@@ -63,7 +63,7 @@
   "ui.type_all": "Todos os arquivos",
   "ui.game_help": "Versão 1.1.1 do jogo: um .nup com o jogo base e a atualização, ou uma pasta com exefs e romfs da atualização. O jogo em si não precisa de arquivo de chaves.",
   "ui.dlss": "Baixar o NVIDIA DLSS (nvngx_dlss.dll) para placas de vídeo NVIDIA RTX",
-  "ui.dlss_help": "Do DLSS SDK da NVIDIA no GitHub, sob a licença NVIDIA RTX SDK (github.com/NVIDIA/DLSS). Sem ele as opções DLAA e DLSS não fazem nada.",
+  "ui.dlss_help": "Verifica antes se o nvngx_dlss.dll já está na pasta de instalação (e ignora em GPUs sem RTX) antes de baixar do DLSS SDK da NVIDIA no GitHub (licença NVIDIA RTX SDK). Sem ele, as opções DLAA e DLSS não fazem nada.",
   "ui.start": "Iniciar",
   "ui.cancel": "Cancelar",
   "ui.cancelling": "Cancelando...",

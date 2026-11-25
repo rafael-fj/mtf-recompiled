@@ -302,3 +302,20 @@
 - **NVIDIA High (RTX 5070 Ti, `mtf.log`, 4,800 frames):** `avg 60.0 fps (16.67 ms)`, `1% low 52.6–55.6 fps`, `0.1% low 34.2–51.3 fps`, `pipe_waits>16ms = 0`, `5` fast-links (avg `0.02 ms`, max `0.05 ms`), `0` failed. Async GPL + decoupled `MTF_REPLAY_THREADS=0` verified clean in real gameplay.
 - **AMD iGPU Low (`24.30.66`, `mtf.1.log`, 2,400 frames):** `boot: guest starts 4036 ms` (down from `21986 ms`, `248` prewarmed in `3405 ms` + `1490` in background); in-match `avg 35.2–35.5 fps`, `1% low 27.0–27.4 fps`, `0.1% low 21.2–25.5 fps`. Isolated a `78.9 ms` drawing-thread `gpl_link` spike at frame 737; added `MTF_GPL_DRAW_LINK=0` default on AMD in [runtime/vk_pipeline.c](../runtime/vk_pipeline.c).
 - **T6 A/B (`MTF_REPLAY_ASYNC=0` vs `1`, AMD iGPU, 24s runs):** `0` gave `60.1 fps (16.65 ms), 1% low 58.0, 0.1% low 43.0, worst 23.1 ms`; `1` gave `60.1 fps (16.63 ms), 1% low 58.0, 0.1% low 46.0, worst 21.6 ms`. Difference is within noise and in-match iGPU bottleneck is GPU-side, so `MTF_REPLAY_ASYNC=0` remains the default (zero extra latency).
+
+### 2026-11-25 — Dynamic FPS (`< 60 FPS` Fixed-Timestep Accumulator) & Playable AMD iGPU Verification (branch `test`)
+- **Implementation:**
+  - `recomp/patches.py`, `recomp/gen.py`, `recomp/nro_lift.py`, `profiles/0400D4201C6EA000/patches.txt`, `runtime/gfx_stubs.c`, `runtime/cfg.c`: Added `host` & `blr` patch directives and `MTF_DYNAMIC_FPS` (`0|1`, live) hooking `nro0` render/sync points (`0x11f8578` `ov_dynamic_fps_sync`, `0x11f9394` `ov_dynamic_fps_present`, `0x11f9658` `skip_spin`, `0x11f98b4` `ov_dynamic_fps_flush`, `0x11f98d0` `ov_dynamic_fps_acquire`, `0x11fa378` `ov_dynamic_fps_sync2`). When rendering drops below 60 FPS, simulation ticks catch up to `60.0 ticks/s` (1x real-time speed) by skipping redundant GPU submit/present/acquire waits on credit ticks.
+- **Verification:**
+  - **NVIDIA RTX 5070 Ti (`MTF_FPS_LIMIT=30 MTF_DYNAMIC_FPS=1`, automated 14s + playtest):** `avg 30.0 fps (33.33 ms)`, `1% low 29.9 fps`, `dynamic_fps: 60.0 ticks/s` (`waits=1059 skips=1054`).
+  - **AMD Integrated GPU (`AMD Radeon(TM) Graphics`, vendor `0x1002` device `0x13c0`, Vulkan 1.3.302, driver `24.30.66`, `low` preset, `MTF_DYNAMIC_FPS=1`):** Playable in-match without slow motion — `avg 42.6–45.1 fps` (`1% low 35.1 fps`, `0.1% low 31.7 fps`, `worst 31.4 ms`, `pipe_waits>16ms 0` in the steady 600-frame window; `51.6 fps` in the initial window) while maintaining **`59.8–60.4 ticks/s`** (`waits=2113, skips=601`).
+
+### 2026-11-25 — `v0.1.8` Pre-Release: Menu Split (`Screen`/`Graphics`), Installer DLSS Notice, `> 60 FPS` RE & FAQ (`branch test`)
+- **Changes:**
+  - `runtime/ui/menu.cpp`, `runtime/ui_text.{h,c}`: Split `Screen` into **`Screen` / `Tela`** (display, framing, GPU, pacing, **`Dynamic FPS` / `FPS dinâmico`**, Frame Gen, perf overlay) and **`Graphics` / `Gráficos`** (preset, render scale, upscaling/DLSS, AA, color, HDR) with `en` and `pt-BR` translations.
+  - `runtime/gfx_stubs.c`: Re-enabled normal `vtable[2]` (`ov_dynamic_fps_sync2`) execution on skip ticks (still `60.0 ticks/s` at 30 FPS) to avoid worker-thread sync desync.
+  - `> 60 FPS` RE investigation: Automated probe of global `*(0x700355eec0)` (`ts_probe: orig=1.000 scaled=0.499 after=0.499`) confirmed that while `0x700355eec0` scales specific match physics/damping (`expf`), Camelot's engine advances animations, UI, and state machines in fixed `1/60s` ticks; native `> 60 FPS` without Frame Gen would require camera/transform render interpolation (deferred post-`0.1.8`).
+  - `installer/text/{en,pt-BR}.json`: Clarified `ui.dlss_help` to state that the installer checks for existing `nvngx_dlss.dll` (and skips non-RTX GPUs) before downloading.
+  - `VERSION`, `README.md`, `docs/faq.md`: Bumped `VERSION` to `0.1.8`, added comprehensive English [docs/faq.md](faq.md) with a README hotlink.
+- **Verification:**
+  - `python tools/check_content.py` (`exit 0`), `python -m installer.gui --selftest` (`exit 0`), `PyInstaller` `MTF-Recomp-Setup` + `tools/make_release.py --version 0.1.8 --windows-zip` (`MTF-Recomp-v0.1.8-Windows-x64.zip`), and clean-install user playtest validated.

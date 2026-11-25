@@ -291,7 +291,7 @@ extern "C" void menu_vk_release(void) {
 // working directory) as menu-test-<frame>-<page>.png; after the last tab the menu closes.
 // MTF_MENU_TEST_SET=<frame>:<key>=<value>[,<key>=<value>...][;<frame>:...]: cfg_set of each key (MTF_ prefix optional)
 // at that presented frame, menu open or not. mtf.ini is written only by the pseudo-key SAVE=1.
-enum { TAB_SCREEN, TAB_GAME, TAB_SOUND, TAB_CONTROLS, TAB_MULTIPLAYER, TAB_CHEATS, TAB_MENU, TAB_ADVANCED, TAB_COUNT };
+enum { TAB_SCREEN, TAB_GRAPHICS, TAB_GAME, TAB_SOUND, TAB_CONTROLS, TAB_MULTIPLAYER, TAB_CHEATS, TAB_MENU, TAB_ADVANCED, TAB_COUNT };
 enum { TEST_PAGE_FRAMES = 30, TEST_SETS = 16 };
 struct TestSet { uint64_t frame; char key[64], value[64]; };
 static struct {
@@ -524,14 +524,21 @@ static void rows_color(void) {
 
 static void tab_screen(float scale) {
     opt_begin("##screen", scale);
-    row_graphics_preset();
-    row_output_res();
-    row_render_scale();
     static const UiTextId win_modes[] = {UI_MENU_WINDOW_MODE_WINDOWED, UI_MENU_WINDOW_MODE_BORDERLESS,
                                          UI_MENU_WINDOW_MODE_FULLSCREEN};
     if (opt_choice("MTF_WINDOW_MODE", UI_MENU_WINDOW_MODE, win_modes, 3, UI_MENU_WINDOW_MODE_DESC))
         cfg_set("MTF_FULLSCREEN", strcmp(cfg_value("MTF_WINDOW_MODE"), "windowed") ? "1" : "0");
     row_window_size();
+    row_output_res();
+    static const UiTextId aspect[] = {UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH};
+    opt_choice("MTF_ASPECT", UI_MENU_ASPECT, aspect, 2, UI_MENU_ASPECT_DESC);
+    static const char *const uw_vals[] = {"off", "21:9", "32:9"};
+    const char *uw_names[] = {menu_text(UI_MENU_OFF), "21:9", "32:9"};
+    opt_choice_list("MTF_ULTRAWIDE", UI_MENU_ULTRAWIDE, uw_vals, uw_names, 3, UI_MENU_ULTRAWIDE_DESC);
+    static const UiTextId hud_pos[] = {UI_MENU_HUD_POSITION_EDGES, UI_MENU_HUD_POSITION_CENTERED};
+    opt_choice("MTF_HUD_POSITION", UI_MENU_HUD_POSITION, hud_pos, 2, UI_MENU_HUD_POSITION_DESC);
+    opt_slider("MTF_FOV", UI_MENU_FOV, 70, 140, UI_MENU_FOV_DESC, 5, "%.0f %%");
+    row_gpu();
     static const UiTextId present[] = {UI_MENU_PRESENT_MAILBOX, UI_MENU_PRESENT_VSYNC, UI_MENU_PRESENT_IMMEDIATE};
     opt_choice("MTF_VK_PRESENT", UI_MENU_PRESENT, present, 3, UI_MENU_PRESENT_DESC);
     int mon_hz = gfx_window_refresh_hz();
@@ -543,6 +550,7 @@ static void tab_screen(float scale) {
     const char *fps_names[] = {"30", "45", "60", "90", "120",
                                mon_label, menu_text(UI_MENU_FPS_UNLIMITED)};
     opt_choice_list("MTF_FPS_LIMIT", UI_MENU_FPS_LIMIT, fps_vals, fps_names, 7, UI_MENU_FPS_LIMIT_DESC);
+    opt_toggle("MTF_DYNAMIC_FPS", UI_MENU_DYNAMIC_FPS, UI_MENU_DYNAMIC_FPS_DESC);
 
     const char *fg_cur = cfg_value("MTF_FRAMEGEN");
     bool fg_on = strcmp(fg_cur, "off") != 0;
@@ -557,13 +565,19 @@ static void tab_screen(float scale) {
     if (!fg_on) opt_disable_next(UI_MENU_FRAMEGEN_FIRST);
     opt_choice_list("MTF_FRAMEGEN", UI_MENU_FRAMEGEN_TARGET, fg_vals, fg_names, 3, UI_MENU_FRAMEGEN_DESC,
                     fg_on ? (!strcmp(fg_cur, "auto") ? 1 : -1) : 1);
-    row_gpu();
-    static const UiTextId perf[] = {UI_MENU_PERF_OFF, UI_MENU_PERF_FPS, UI_MENU_PERF_FULL};
-    opt_choice("MTF_PERF_OVERLAY", UI_MENU_PERF_OVERLAY, perf, 3, UI_MENU_PERF_OVERLAY_DESC);
     static const char *const background[] = {"0", "10", "15", "20", "30"};
     const char *background_names[] = {menu_text(UI_MENU_OFF), "10", "15", "20", "30"};
     opt_choice_list("MTF_BACKGROUND_FPS", UI_MENU_BACKGROUND_FPS, background, background_names, 5,
                     UI_MENU_BACKGROUND_FPS_DESC);
+    static const UiTextId perf[] = {UI_MENU_PERF_OFF, UI_MENU_PERF_FPS, UI_MENU_PERF_FULL};
+    opt_choice("MTF_PERF_OVERLAY", UI_MENU_PERF_OVERLAY, perf, 3, UI_MENU_PERF_OVERLAY_DESC);
+    opt_end();
+}
+
+static void tab_graphics(float scale) {
+    opt_begin("##graphics", scale);
+    row_graphics_preset();
+    row_render_scale();
     opt_group(UI_MENU_GRAPHICS);
     bool hdr = gfx_present_hdr() != 0 || cfg_bool("MTF_HDR");
     if (hdr && strcmp(cfg_value("MTF_UPSCALER"), "bilinear")) cfg_set("MTF_UPSCALER", "bilinear");
@@ -582,14 +596,6 @@ static void tab_screen(float scale) {
     static const UiTextId preset[] = {UI_MENU_DLSS_PRESET_DEFAULT, UI_MENU_DLSS_PRESET_K, UI_MENU_DLSS_PRESET_J};
     opt_choice("MTF_DLSS_PRESET", UI_MENU_DLSS_PRESET, preset, 3, UI_MENU_DLSS_PRESET_DESC);
     ImGui::EndDisabled();
-    static const UiTextId aspect[] = {UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH};
-    opt_choice("MTF_ASPECT", UI_MENU_ASPECT, aspect, 2, UI_MENU_ASPECT_DESC);
-    static const char *const uw_vals[] = {"off", "21:9", "32:9"};
-    const char *uw_names[] = {menu_text(UI_MENU_OFF), "21:9", "32:9"};
-    opt_choice_list("MTF_ULTRAWIDE", UI_MENU_ULTRAWIDE, uw_vals, uw_names, 3, UI_MENU_ULTRAWIDE_DESC);
-    static const UiTextId hud_pos[] = {UI_MENU_HUD_POSITION_EDGES, UI_MENU_HUD_POSITION_CENTERED};
-    opt_choice("MTF_HUD_POSITION", UI_MENU_HUD_POSITION, hud_pos, 2, UI_MENU_HUD_POSITION_DESC);
-    opt_slider("MTF_FOV", UI_MENU_FOV, 70, 140, UI_MENU_FOV_DESC, 5, "%.0f %%");
     static const char *const aniso[] = {"game", "2", "4", "8", "16"};
     const char *aniso_names[] = {menu_text(UI_MENU_ANISO_GAME), "2x", "4x", "8x", "16x"};
     gfx_custom |= opt_choice_list("MTF_ANISO", UI_MENU_ANISO, aniso, aniso_names, 5, UI_MENU_ANISO_DESC);
@@ -1211,9 +1217,9 @@ static void restart_confirm(void) {
     ImGui::EndPopup();
 }
 
-static const UiTextId kTabNames[TAB_COUNT] = {UI_MENU_TAB_SCREEN,   UI_MENU_TAB_GAME, UI_MENU_TAB_SOUND,
-                                              UI_MENU_TAB_CONTROLS, UI_MENU_TAB_MULTIPLAYER, UI_MENU_TAB_CHEATS,
-                                              UI_MENU_TAB_MENU,     UI_MENU_TAB_ADVANCED};
+static const UiTextId kTabNames[TAB_COUNT] = {UI_MENU_TAB_SCREEN,   UI_MENU_TAB_GRAPHICS,    UI_MENU_TAB_GAME,
+                                              UI_MENU_TAB_SOUND,    UI_MENU_TAB_CONTROLS,    UI_MENU_TAB_MULTIPLAYER,
+                                              UI_MENU_TAB_CHEATS,   UI_MENU_TAB_MENU,        UI_MENU_TAB_ADVANCED};
 static int g_tab;               // the tab shown
 static int g_tab_request = -1;  // select this tab at the next layout; -1 none
 static int g_focus_page = -1;   // the page whose first row takes the cursor at its next layout
@@ -1267,6 +1273,7 @@ static void layout_menu(uint32_t w, uint32_t h, float scale) {
             opt_reserve_bottom(bottom);
             switch (k) {
             case TAB_SCREEN: tab_screen(scale); break;
+            case TAB_GRAPHICS: tab_graphics(scale); break;
             case TAB_GAME: tab_game(scale); break;
             case TAB_SOUND: tab_sound(scale); break;
             case TAB_CONTROLS: tab_controls(scale); break;

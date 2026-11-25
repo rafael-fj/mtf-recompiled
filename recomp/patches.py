@@ -66,7 +66,7 @@ class Table:
         out = {}
         for off, alts in self.sites.get(name, {}).items():
             a = base + off
-            out[a] = [(k, [adrp(a, self.page, w[1]) if isinstance(w, tuple) else w for w in repl])
+            out[a] = [(k, [adrp(a, self.page, w[1]) if isinstance(w, tuple) and w[0] == 'page' else w for w in repl])
                       for k, repl, _ in alts]
         return out
 
@@ -97,6 +97,19 @@ def load(path, mods):
                     repl.append(('page', int(w[7:])))
                 else:
                     repl.append(int(w, 16))
+            alts = sites.setdefault(f[2], {}).setdefault(off, [])
+            if any(k == index[f[1]] for k, _, _ in alts):
+                raise PatchError(f'{where}: {f[2]}+{off:#x} patched twice by set {f[1]}')
+            if alts and alts[0][2] != orig:
+                raise PatchError(f'{where}: {f[2]}+{off:#x} expects {orig:08x}, an earlier line {alts[0][2]:08x}')
+            alts.append((index[f[1]], repl, orig))
+        elif f[0] == 'host' and len(f) == 6:
+            if f[1] not in index:
+                raise PatchError(f'{where}: unknown set {f[1]}')
+            if f[2] not in bases:
+                raise PatchError(f'{where}: module {f[2]} not in the layout')
+            off, orig = int(f[3], 16), int(f[4], 16)
+            repl = [('host', f[5])]
             alts = sites.setdefault(f[2], {}).setdefault(off, [])
             if any(k == index[f[1]] for k, _, _ in alts):
                 raise PatchError(f'{where}: {f[2]}+{off:#x} patched twice by set {f[1]}')
