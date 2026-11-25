@@ -47,15 +47,15 @@ static const struct { const char *key, *def; } defaults[] = {
     {"FULLSCREEN", "0"},            // gfx_present.c (F11 toggles)
     {"WINDOW_MODE", "windowed"},    // gfx_window_win.c: windowed, borderless, fullscreen
     {"UPSCALER", "fsr"},            // vk_fsr.c: FSR 1 (or bilinear) when the window is larger than the game's output
-    {"SHARPNESS", "80"},
+    {"SHARPNESS", "50"},
     {"ASPECT", "fit"},              // fit (bars) or stretch
     {"ULTRAWIDE", "off"},           // ov_resolution.c: off (16:9), 21:9, or 32:9
     {"HUD_POSITION", "edges"},      // edges or centered (16:9 safe zone in ultrawide)
     {"FOV", "100"},                 // ov_resolution.c: camera FOV % (70..140, 100 = game default)
     {"MOVIE_ASPECT", "keep"},
-    {"ANISO", "game"},              // vk_texture.c: the game's anisotropy, or 2..16
+    {"ANISO", "8"},                 // vk_texture.c: the game's anisotropy, or 2..16
     {"SHADOW_RES", "game"},
-    {"SHADOW_SCALE", "1"},
+    {"SHADOW_SCALE", "2"},
     {"VATTR_LOG", "0"},             // (diagnostic) vk_pipeline.c logs each vertex attribute format once
     {"PROBE_VS", ""},               // (diagnostic) vk_exec_draw.c: a vertex shader key (or "skinned") whose draws are logged
     {"CMD_MEM_CB", "1"},            // memory callbacks when a recording runs out of command / control memory (nvn_api_cmd.c)
@@ -143,11 +143,11 @@ static CfgMeta metas[] = {
     {"GRAPHICS_PRESET", "custom", "low|balanced|high|ultra|custom", RESTART},
     {"UPSCALER", NULL, "fsr|bilinear", LIVE}, {"SHARPNESS", NULL, "0..100", LIVE},
     {"ASPECT", NULL, "fit|stretch", LIVE}, {"ANISO", NULL, "game|2|4|8|16", RESTART},
-    {"SHADOW_SCALE", "1", "1|2|3|4", RESTART},
+    {"SHADOW_SCALE", "2", "1|2|3|4", RESTART},
     {"TESS", NULL, "0|1", RESTART},
     {"DLAA", "0", "0|1", RESTART}, {"DLSS", NULL, "dlaa|quality|balanced|performance|ultra_performance", RESTART},
     {"DLSS_PRESET", "default", "default|k|j", LIVE}, {"FXAA", "1", "0|1", LIVE},
-    {"SMAA", "off", "off|low|medium|high", LIVE},
+    {"SMAA", "medium", "off|low|medium|high", LIVE},
     {"COLOR_PRESET", "default", "default|vivid|clarity|custom", LIVE}, {"COLOR_BRIGHTNESS", NULL, "-30..30", LIVE},
     {"COLOR_CONTRAST", NULL, "70..150", LIVE}, {"COLOR_SATURATION", NULL, "50..200", LIVE},
     {"COLOR_GAMMA", NULL, "0.8..1.2", LIVE},

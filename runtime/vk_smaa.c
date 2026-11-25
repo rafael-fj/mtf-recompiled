@@ -11,6 +11,7 @@
 
 #include "cfg.h"
 #include "host.h"
+#include "vk_dlaa.h"
 #include "shaders/smaa/AreaTex.h"
 #include "shaders/smaa/SearchTex.h"
 #include "smaa_blend_spv.h"
@@ -224,7 +225,8 @@ static void run_pass(VkCommandBuffer cb, VkPipeline p, const VkDescriptorImageIn
 
 int vk_smaa_record(VkCommandBuffer cb, VkImage dst, const int to[4]) {
     const char *q = cfg_value("MTF_SMAA");
-    int quality = !strcmp(q, "low") ? LOW : !strcmp(q, "medium") ? MEDIUM : !strcmp(q, "high") ? HIGH : -1;
+    int quality = vk_dlaa_available() ? -1
+                  : !strcmp(q, "low") ? LOW : !strcmp(q, "medium") ? MEDIUM : !strcmp(q, "high") ? HIGH : -1;
     VkCtx *c = vk_ctx();
     if (quality < 0) {   // turned off: hand the targets (about 200 MB at 4K) back until it is turned on again
         if (S.target[COLOR].img) {
