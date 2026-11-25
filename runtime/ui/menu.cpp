@@ -711,7 +711,8 @@ static void tab_controls(float scale) {
         if (ImGui::BeginTabItem(controller)) {
             opt_begin("##controls_pad", scale);
             opt_group(UI_MENU_MP_INPUT);
-            opt_toggle("MTF_MULTIPLAYER_INPUT", UI_MENU_MP_INPUT, UI_MENU_MP_INPUT_DESC);
+            if (opt_toggle("MTF_MULTIPLAYER_INPUT", UI_MENU_MP_INPUT, UI_MENU_MP_INPUT_DESC))
+                rt_log("input: multiplayer input %s (F1 -> Controls)", cfg_bool("MTF_MULTIPLAYER_INPUT") ? "on" : "off");
             if (cfg_bool("MTF_MULTIPLAYER_INPUT")) {
                 InputPadList pads;
                 input_list_pads(&pads);

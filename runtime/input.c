@@ -598,7 +598,13 @@ void input_list_pads(InputPadList *out) {
 int input_player_connected(int player) {
     if (player < 0 || player >= INPUT_MAX_PLAYERS) return 0;
     if (stream_host_remote_connected(player)) return 1;
-    if (!cfg_bool("MTF_MULTIPLAYER_INPUT")) return player == 0;
+    static int mp_logged;
+    int mp_on = cfg_bool("MTF_MULTIPLAYER_INPUT");
+    if (!mp_logged) {
+        mp_logged = 1;
+        rt_log("input: multiplayer input %s (MTF_MULTIPLAYER_INPUT)", mp_on ? "on" : "off");
+    }
+    if (!mp_on) return player == 0;
     const char *src = cfg_get(player_cfg_key(player));
     if (!src || !*src) return player == 0;
     if (!strcmp(src, "none")) return 0;
