@@ -24,6 +24,7 @@
 #include "ui/binds_page.h"
 #include "ui/option_rows.h"
 #include "../cheats.h"
+#include "../achievements.h"
 #include "stream_host.h"
 #ifdef _WIN32
 #include <windows.h>
@@ -47,6 +48,12 @@ void vk_queue_lock(void);
 void vk_queue_unlock(void);
 void res_sizes(unsigned out[2], unsigned scene[2]);   // vk_dlaa.c: the game's output and 3D scene sizes
 const char *rt_log_file(void);                        // main.c: the log of this run, "" when there is none
+const char *fs_save_profile_current(void);
+int fs_save_profile_list(char names[][64], int *tainted, int max_n);
+int fs_save_profile_is_tainted(const char *name);
+void fs_save_profile_mark_tainted(void);
+int fs_save_profile_create(const char *name, int clone_current);
+int fs_save_profile_delete(const char *name);
 extern const char rt_port_version[];
 }
 
@@ -548,14 +555,6 @@ static void tab_screen(float scale) {
         cfg_set("MTF_FULLSCREEN", strcmp(cfg_value("MTF_WINDOW_MODE"), "windowed") ? "1" : "0");
     row_window_size();
     row_output_res();
-    static const UiTextId aspect[] = {UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH};
-    opt_choice("MTF_ASPECT", UI_MENU_ASPECT, aspect, 2, UI_MENU_ASPECT_DESC);
-    static const char *const uw_vals[] = {"off", "21:9", "32:9"};
-    const char *uw_names[] = {menu_text(UI_MENU_OFF), "21:9", "32:9"};
-    opt_choice_list("MTF_ULTRAWIDE", UI_MENU_ULTRAWIDE, uw_vals, uw_names, 3, UI_MENU_ULTRAWIDE_DESC);
-    static const UiTextId hud_pos[] = {UI_MENU_HUD_POSITION_EDGES, UI_MENU_HUD_POSITION_CENTERED};
-    opt_choice("MTF_HUD_POSITION", UI_MENU_HUD_POSITION, hud_pos, 2, UI_MENU_HUD_POSITION_DESC);
-    opt_slider("MTF_FOV", UI_MENU_FOV, 70, 140, UI_MENU_FOV_DESC, 5, "%.0f %%");
     row_gpu();
     static const UiTextId present[] = {UI_MENU_PRESENT_MAILBOX, UI_MENU_PRESENT_VSYNC, UI_MENU_PRESENT_IMMEDIATE};
     opt_choice("MTF_VK_PRESENT", UI_MENU_PRESENT, present, 3, UI_MENU_PRESENT_DESC);
@@ -564,10 +563,6 @@ static void tab_screen(float scale) {
     if (mon_hz > 0) snprintf(mon_label, sizeof mon_label, "%s (%d Hz)", menu_text(UI_MENU_FPS_DISPLAY), mon_hz);
     else snprintf(mon_label, sizeof mon_label, "%s", menu_text(UI_MENU_FPS_DISPLAY));
 
-    static const char *const fps_vals[] = {"30", "45", "60", "90", "120", "display", "unlimited"};
-    const char *fps_names[] = {"30", "45", "60", "90", "120",
-                               mon_label, menu_text(UI_MENU_FPS_UNLIMITED)};
-    opt_choice_list("MTF_FPS_LIMIT", UI_MENU_FPS_LIMIT, fps_vals, fps_names, 7, UI_MENU_FPS_LIMIT_DESC);
     opt_toggle("MTF_DYNAMIC_FPS", UI_MENU_DYNAMIC_FPS, UI_MENU_DYNAMIC_FPS_DESC);
 
     const char *fg_cur = cfg_value("MTF_FRAMEGEN");
@@ -589,6 +584,16 @@ static void tab_screen(float scale) {
                     UI_MENU_BACKGROUND_FPS_DESC);
     static const UiTextId perf[] = {UI_MENU_PERF_OFF, UI_MENU_PERF_FPS, UI_MENU_PERF_FULL};
     opt_choice("MTF_PERF_OVERLAY", UI_MENU_PERF_OVERLAY, perf, 3, UI_MENU_PERF_OVERLAY_DESC);
+
+    opt_group(UI_MENU_ULTRAWIDE);
+    static const UiTextId aspect[] = {UI_MENU_ASPECT_FIT, UI_MENU_ASPECT_STRETCH};
+    opt_choice("MTF_ASPECT", UI_MENU_ASPECT, aspect, 2, UI_MENU_ASPECT_DESC);
+    static const char *const uw_vals[] = {"off", "21:9", "32:9"};
+    const char *uw_names[] = {menu_text(UI_MENU_OFF), "21:9", "32:9"};
+    opt_choice_list("MTF_ULTRAWIDE", UI_MENU_ULTRAWIDE, uw_vals, uw_names, 3, UI_MENU_ULTRAWIDE_DESC);
+    static const UiTextId hud_pos[] = {UI_MENU_HUD_POSITION_EDGES, UI_MENU_HUD_POSITION_CENTERED};
+    opt_choice("MTF_HUD_POSITION", UI_MENU_HUD_POSITION, hud_pos, 2, UI_MENU_HUD_POSITION_DESC);
+    opt_slider("MTF_FOV", UI_MENU_FOV, 70, 140, UI_MENU_FOV_DESC, 5, "%.0f %%");
     opt_end();
 }
 
@@ -628,23 +633,105 @@ static void tab_graphics(float scale) {
         cfg_set("MTF_GRAPHICS_PRESET", "custom");
         opt_save_soon();
     }
-    rows_color();
     opt_group(UI_MENU_HDR_GROUP);
     opt_toggle("MTF_HDR", UI_MENU_HDR, UI_MENU_HDR_DESC);
     opt_slider("MTF_HDR_PEAK_NITS", UI_MENU_HDR_PEAK, 400, 10000, UI_MENU_HDR_PEAK_DESC, 50, "%.0f");
     opt_slider("MTF_HDR_PAPER_WHITE", UI_MENU_HDR_GAME, 80, 500, UI_MENU_HDR_GAME_DESC, 5, "%.0f");
     opt_slider("MTF_HDR_UI_NITS", UI_MENU_HDR_UI, 80, 500, UI_MENU_HDR_UI_DESC, 5, "%.0f");
+    rows_color();
     opt_end();
 }
 
 static void tab_game(float scale) {
-    opt_begin("##game", scale);
-    opt_toggle("MTF_FRAME_QUEUE", UI_MENU_FRAME_QUEUE, UI_MENU_FRAME_QUEUE_DESC);
-    row_game_lang();
-    static const UiTextId mode[] = {UI_MENU_MODE_DOCKED, UI_MENU_MODE_HANDHELD};
-    opt_choice("MTF_OPERATION_MODE", UI_MENU_OPERATION_MODE, mode, 2, UI_MENU_OPERATION_MODE_DESC);
-    opt_toggle("MTF_ASSUME_FOCUS", UI_MENU_ASSUME_FOCUS, UI_MENU_ASSUME_FOCUS_DESC);
-    opt_end();
+    if (ImGui::BeginTabBar("##game_sub", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
+        char settings[64], saves[64];
+        snprintf(settings, sizeof settings, "  %s  ###game_cfg", menu_text(UI_MENU_GAME_SETTINGS));
+        snprintf(saves, sizeof saves, "  %s  ###game_saves", menu_text(UI_MENU_GAME_SAVES));
+        if (ImGui::BeginTabItem(settings)) {
+            opt_begin("##game", scale);
+            opt_toggle("MTF_FRAME_QUEUE", UI_MENU_FRAME_QUEUE, UI_MENU_FRAME_QUEUE_DESC);
+            row_game_lang();
+            static const UiTextId mode[] = {UI_MENU_MODE_DOCKED, UI_MENU_MODE_HANDHELD};
+            opt_choice("MTF_OPERATION_MODE", UI_MENU_OPERATION_MODE, mode, 2, UI_MENU_OPERATION_MODE_DESC);
+            opt_toggle("MTF_ASSUME_FOCUS", UI_MENU_ASSUME_FOCUS, UI_MENU_ASSUME_FOCUS_DESC);
+            opt_end();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem(saves)) {
+            opt_begin("##game_saves", scale);
+            ImGui::TextWrapped("%s", menu_text(UI_MENU_SAVE_DESC));
+            ImGui::Spacing();
+            bool casual = achievements_is_casual() != 0;
+            ImGui::TextColored(casual ? ImVec4(0.95f, 0.55f, 0.35f, 1) : ImVec4(0.45f, 0.88f, 0.55f, 1),
+                               "%s", menu_text(casual ? UI_MENU_ACH_STATUS_CASUAL : UI_MENU_ACH_STATUS_RANKED));
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            char names[16][64];
+            int tainted[16] = {0};
+            int count = fs_save_profile_list(names, tainted, 16);
+            const char *running = fs_save_profile_current();
+            const char *selected = cfg_value("MTF_SAVE_PROFILE");
+            for (int i = 0; i < count; i++) {
+                ImGui::PushID(i);
+                bool is_running = strcmp(names[i], running) == 0;
+                bool is_sel = strcmp(names[i], selected) == 0;
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("%s", names[i]);
+                ImGui::SameLine(0, 10 * scale);
+                if (is_running) {
+                    ImGui::TextColored(ImVec4(0.45f, 0.88f, 0.55f, 1), "[%s]", menu_text(UI_MENU_SAVE_ACTIVE));
+                    ImGui::SameLine(0, 8 * scale);
+                } else if (is_sel) {
+                    ImGui::TextColored(ImVec4(0.93f, 0.76f, 0.33f, 1), "[%s]", menu_text(UI_MENU_SAVE_SELECTED));
+                    ImGui::SameLine(0, 8 * scale);
+                }
+                ImGui::TextColored(tainted[i] ? ImVec4(0.95f, 0.55f, 0.35f, 1) : ImVec4(0.65f, 0.85f, 0.95f, 1),
+                                   "(%s)", menu_text(tainted[i] ? UI_MENU_SAVE_TAINTED : UI_MENU_SAVE_CLEAN));
+                if (!is_sel) {
+                    ImGui::SameLine(0, 12 * scale);
+                    if (ImGui::Button(menu_text(UI_MENU_SAVE_SELECT))) {
+                        cfg_set("MTF_SAVE_PROFILE", names[i]);
+                        opt_save_soon();
+                        opt_note_restart();
+                    }
+                }
+                if (strcmp(names[i], "default") != 0 && !is_running && !is_sel) {
+                    ImGui::SameLine(0, 8 * scale);
+                    if (ImGui::Button(menu_text(UI_MENU_SAVE_DELETE_BTN)))
+                        fs_save_profile_delete(names[i]);
+                }
+                ImGui::PopID();
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            static char new_name[48] = "multiplayer";
+            ImGui::SetNextItemWidth(220 * scale);
+            ImGui::InputText(menu_text(UI_MENU_SAVE_NAME_LABEL), new_name, sizeof new_name);
+            ImGui::Spacing();
+            if (ImGui::Button(menu_text(UI_MENU_SAVE_NEW_BTN), ImVec2(170 * scale, 0)) && new_name[0]) {
+                if (fs_save_profile_create(new_name, 0)) {
+                    cfg_set("MTF_SAVE_PROFILE", new_name);
+                    opt_save_soon();
+                    opt_note_restart();
+                }
+            }
+            ImGui::SameLine(0, 10 * scale);
+            if (ImGui::Button(menu_text(UI_MENU_SAVE_CLONE_BTN), ImVec2(170 * scale, 0)) && new_name[0]) {
+                if (fs_save_profile_create(new_name, 1)) {
+                    cfg_set("MTF_SAVE_PROFILE", new_name);
+                    opt_save_soon();
+                    opt_note_restart();
+                }
+            }
+            opt_end();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
 }
 
 static void tab_sound(float scale) {
@@ -1004,22 +1091,73 @@ static void tab_multiplayer(float scale) {
 }
 
 static void tab_cheats(float scale) {
+    static const char *pending_key = nullptr;
+    bool tainted = fs_save_profile_is_tainted(NULL) != 0;
+
     ImGui::TextWrapped("%s", menu_text(UI_MENU_CHEATS_NOTE));
+    if (tainted) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1), "%s", menu_text(UI_MENU_CHEATS_TAINTED_BANNER));
+    }
     ImGui::Spacing();
-    if (ImGui::Button(menu_text(UI_MENU_CHEATS_UNLOCK_ALL_BTN), ImVec2(200 * scale, 0))) cheats_set_all(1);
+    if (ImGui::Button(menu_text(UI_MENU_CHEATS_UNLOCK_ALL_BTN), ImVec2(200 * scale, 0))) {
+        if (!tainted) {
+            pending_key = "__ALL__";
+            ImGui::OpenPopup("##cheat_warn");
+        } else {
+            cheats_set_all(1);
+            opt_save_soon();
+        }
+    }
     ImGui::SameLine(0, 12 * scale);
-    if (ImGui::Button(menu_text(UI_MENU_CHEATS_DISABLE_ALL_BTN), ImVec2(170 * scale, 0))) cheats_set_all(0);
+    if (ImGui::Button(menu_text(UI_MENU_CHEATS_DISABLE_ALL_BTN), ImVec2(170 * scale, 0))) {
+        cheats_set_all(0);
+        opt_save_soon();
+    }
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
     opt_begin("##cheats", scale);
-    opt_toggle("MTF_CHEAT_UNLOCK_CHARS", UI_MENU_CHEAT_CHARS, UI_MENU_CHEAT_CHARS_DESC);
-    opt_toggle("MTF_CHEAT_UNLOCK_COSTUMES", UI_MENU_CHEAT_COSTUMES, UI_MENU_CHEAT_COSTUMES_DESC);
-    opt_toggle("MTF_CHEAT_UNLOCK_RACKETS", UI_MENU_CHEAT_RACKETS, UI_MENU_CHEAT_RACKETS_DESC);
-    opt_toggle("MTF_CHEAT_UNLOCK_COURTS", UI_MENU_CHEAT_COURTS, UI_MENU_CHEAT_COURTS_DESC);
-    opt_toggle("MTF_CHEAT_UNLOCK_MODES", UI_MENU_CHEAT_MODES, UI_MENU_CHEAT_MODES_DESC);
+    static const struct { const char *key; UiTextId lbl, desc; } kCheats[] = {
+        {"MTF_CHEAT_UNLOCK_CHARS", UI_MENU_CHEAT_CHARS, UI_MENU_CHEAT_CHARS_DESC},
+        {"MTF_CHEAT_UNLOCK_COSTUMES", UI_MENU_CHEAT_COSTUMES, UI_MENU_CHEAT_COSTUMES_DESC},
+        {"MTF_CHEAT_UNLOCK_RACKETS", UI_MENU_CHEAT_RACKETS, UI_MENU_CHEAT_RACKETS_DESC},
+        {"MTF_CHEAT_UNLOCK_COURTS", UI_MENU_CHEAT_COURTS, UI_MENU_CHEAT_COURTS_DESC},
+        {"MTF_CHEAT_UNLOCK_MODES", UI_MENU_CHEAT_MODES, UI_MENU_CHEAT_MODES_DESC},
+    };
+    for (const auto &c : kCheats) {
+        if (opt_toggle(c.key, c.lbl, c.desc) && cfg_bool(c.key) && !tainted) {
+            cfg_set(c.key, "0");
+            pending_key = c.key;
+            ImGui::OpenPopup("##cheat_warn");
+        }
+    }
     opt_end();
+
+    ImGui::SetNextWindowSize(ImVec2(520 * scale, 0), ImGuiCond_Always);
+    if (ImGui::BeginPopupModal("##cheat_warn", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+        g_modal = true;
+        ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1), "%s", menu_text(UI_MENU_CHEATS_WARN_TITLE));
+        ImGui::Spacing();
+        ImGui::TextWrapped("%s", menu_text(UI_MENU_CHEATS_WARN_BODY));
+        ImGui::Spacing();
+        if (ImGui::Button(menu_text(UI_MENU_CHEATS_WARN_CONFIRM), ImVec2(200 * scale, 0))) {
+            fs_save_profile_mark_tainted();
+            achievements_notify_casual("Cheats enabled");
+            if (pending_key && !strcmp(pending_key, "__ALL__")) cheats_set_all(1);
+            else if (pending_key) cfg_set(pending_key, "1");
+            opt_save_soon();
+            pending_key = nullptr;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine(0, 12 * scale);
+        if (ImGui::Button(menu_text(UI_MENU_CHEATS_WARN_CANCEL), ImVec2(140 * scale, 0))) {
+            pending_key = nullptr;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 }
 
 static void tab_menu(float scale) {

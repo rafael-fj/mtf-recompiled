@@ -124,6 +124,7 @@ static const struct { const char *key, *def; } defaults[] = {
     {"CHEAT_UNLOCK_RACKETS", "0"},  // cheats.c: unlock all rackets in memory
     {"CHEAT_UNLOCK_COURTS", "0"},   // cheats.c: unlock all courts in memory
     {"CHEAT_UNLOCK_MODES", "0"},    // cheats.c: unlock all tournament cups and modes
+    {"SAVE_PROFILE", "default"},    // fs_host.c: active save profile ("default" or name under saves/)
 };
 
 // The settings the menu shows (ui/menu.cpp), in its order: what each accepts and whether it applies at once. A NULL
@@ -158,6 +159,7 @@ static CfgMeta metas[] = {
     {"HDR", NULL, "0|1", RESTART}, {"HDR_PEAK_NITS", NULL, "400..10000", LIVE}, {"HDR_PAPER_WHITE", NULL, "80..500", LIVE},
     {"HDR_UI_NITS", NULL, "80..500", LIVE},
     // Game
+    {"SAVE_PROFILE", NULL, NULL, RESTART},
     {"FRAME_QUEUE", NULL, "0|1", LIVE},
     {"LANG", NULL, "en-US|en-GB|ja|fr|fr-CA|de|it|es|es-419|pt-BR|nl|ko|zh-Hans|zh-Hant|auto", RESTART},
     {"OPERATION_MODE", NULL, "docked|handheld", RESTART}, {"ASSUME_FOCUS", NULL, "0|1", LIVE},

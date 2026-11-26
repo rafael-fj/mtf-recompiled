@@ -245,6 +245,12 @@ void ipc_handle_closed(int kind, void *obj);               // CloseHandle on a K
 
 // ---- file system (romfs.c / fs_host.c)
 void fs_init(void);                                        // idempotent; paths from rt_config()
+const char *fs_save_profile_current(void);
+int fs_save_profile_list(char names[][64], int *tainted, int max_n);
+int fs_save_profile_is_tainted(const char *name);
+void fs_save_profile_mark_tainted(void);
+int fs_save_profile_create(const char *name, int clone_current);
+int fs_save_profile_delete(const char *name);
 
 // ---- account (ov_system.c)
 void account_uid(uint64_t out[2]);                         // the local user's nn::account::Uid {lo, hi}, persistent in

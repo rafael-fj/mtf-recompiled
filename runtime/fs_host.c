@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cfg.h"
 #include "fs.h"
 #include "host.h"
 #include "platform/platform.h"
@@ -587,34 +588,198 @@ static uint32_t save_commit(void) {
 }
 
 // ---- storage roots
+static char save_profile_name[64] = "default";
+static volatile int32_t save_tainted_cached = -1;
+static void ready(void);
+
+static void sanitize_profile_name(const char *in, char *out, size_t out_sz) {
+    if (!in || !*in || !strcasecmp(in, "default")) {
+        snprintf(out, out_sz, "default");
+        return;
+    }
+    size_t j = 0;
+    for (size_t i = 0; in[i] && j + 1 < out_sz; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_')
+            out[j++] = (char)c;
+        else if (c == ' ')
+            out[j++] = '_';
+    }
+    out[j] = 0;
+    if (!j || !strcasecmp(out, "default")) snprintf(out, out_sz, "default");
+}
+
+static void save_profile_base(const char *prof_dir, const char *name, char *out, size_t out_sz) {
+    char clean[64];
+    sanitize_profile_name(name, clean, sizeof clean);
+    if (!strcmp(clean, "default")) snprintf(out, out_sz, "%s", prof_dir);
+    else snprintf(out, out_sz, "%s/saves/%s", prof_dir, clean);
+}
+
+static void save_meta_path_for(const char *prof_dir, const char *name, char *out, size_t out_sz) {
+    char base[PATH_CAP];
+    save_profile_base(prof_dir, name, base, sizeof base);
+    snprintf(out, out_sz, "%s/save/mtf_save_meta.ini", base);
+}
+
+static int read_tainted_file(const char *meta_path) {
+    FILE *f = fopen(meta_path, "rb");
+    if (!f) return 0;
+    char buf[256];
+    int tainted = 0;
+    while (fgets(buf, sizeof buf, f)) {
+        if (!strncmp(buf, "cheats_used=", 12)) {
+            tainted = atoi(buf + 12) != 0;
+            break;
+        }
+    }
+    fclose(f);
+    return tainted;
+}
+
+const char *fs_save_profile_current(void) {
+    ready();
+    return save_profile_name;
+}
+
+int fs_save_profile_is_tainted(const char *name) {
+    const char *prof = *profile ? profile : rt_config()->profile;
+    if (!name || !*name) name = save_profile_name;
+    if (!strcmp(name, save_profile_name) && save_tainted_cached >= 0) return save_tainted_cached;
+    char mp[PATH_CAP];
+    save_meta_path_for(prof, name, mp, sizeof mp);
+    return read_tainted_file(mp);
+}
+
+void fs_save_profile_mark_tainted(void) {
+    ready();
+    if (save_tainted_cached == 1) return;
+    char mp[PATH_CAP], dir[PATH_CAP];
+    save_profile_base(profile, save_profile_name, dir, sizeof dir);
+    char sdir[PATH_CAP];
+    snprintf(sdir, sizeof sdir, "%s/save", dir);
+    make_dirs(sdir);
+    save_meta_path_for(profile, save_profile_name, mp, sizeof mp);
+    FILE *f = fopen(mp, "wb");
+    if (f) {
+        fprintf(f, "cheats_used=1\n");
+        fclose(f);
+    }
+    save_tainted_cached = 1;
+    rt_log("host save: profile '%s' marked as cheats-used (achievements disabled)", save_profile_name);
+}
+
+typedef struct {
+    char (*names)[64];
+    int *tainted;
+    int n, max_n;
+} ProfileListCtx;
+
+static int profile_list_cb(const char *name, int kind, uint64_t size, void *vctx) {
+    (void)size;
+    ProfileListCtx *ctx = vctx;
+    if (ctx->n >= ctx->max_n) return 1;
+    if (kind != PLAT_FS_DIR) return 0;
+    if (!strcmp(name, ".") || !strcmp(name, "..") || !strcasecmp(name, "default")) return 0;
+    snprintf(ctx->names[ctx->n], 64, "%s", name);
+    if (ctx->tainted) ctx->tainted[ctx->n] = fs_save_profile_is_tainted(ctx->names[ctx->n]);
+    ctx->n++;
+    return 0;
+}
+
+int fs_save_profile_list(char names[][64], int *tainted, int max_n) {
+    if (max_n <= 0) return 0;
+    ready();
+    int n = 0;
+    snprintf(names[n], 64, "default");
+    if (tainted) tainted[n] = fs_save_profile_is_tainted("default");
+    n++;
+
+    char saves_dir[PATH_CAP];
+    snprintf(saves_dir, sizeof saves_dir, "%s/saves", profile);
+    ProfileListCtx ctx = {names, tainted, n, max_n};
+    plat_fs_list(saves_dir, profile_list_cb, &ctx);
+    return ctx.n;
+}
+
+int fs_save_profile_create(const char *name, int clone_current) {
+    ready();
+    char clean[64];
+    sanitize_profile_name(name, clean, sizeof clean);
+    if (!strcmp(clean, "default")) return 0;
+    char dst_base[PATH_CAP], dst_save[PATH_CAP], dst_tx[PATH_CAP], dst_bak[PATH_CAP];
+    save_profile_base(profile, clean, dst_base, sizeof dst_base);
+    if (plat_fs_kind(dst_base) != PLAT_FS_MISSING) return 0;
+    snprintf(dst_save, sizeof dst_save, "%s/save", dst_base);
+    snprintf(dst_tx, sizeof dst_tx, "%s/save-tx", dst_base);
+    snprintf(dst_bak, sizeof dst_bak, "%s/save-backup", dst_base);
+    make_dirs(dst_save);
+    make_dirs(dst_tx);
+    make_dirs(dst_bak);
+    if (clone_current) {
+        uint64_t uid[2];
+        account_uid(uid);
+        char dst_uid[PATH_CAP];
+        snprintf(dst_uid, sizeof dst_uid, "%s/%016llx%016llx", dst_save, (unsigned long long)uid[1], (unsigned long long)uid[0]);
+        int nf = 0, nl = 0;
+        uint64_t nb = 0;
+        copy_tree(save_root, dst_uid, NULL, 0, &nf, &nl, &nb);
+        if (fs_save_profile_is_tainted(save_profile_name)) {
+            char mp[PATH_CAP];
+            save_meta_path_for(profile, clean, mp, sizeof mp);
+            FILE *f = fopen(mp, "wb");
+            if (f) { fprintf(f, "cheats_used=1\n"); fclose(f); }
+        }
+    }
+    rt_log("host save: created profile '%s'%s", clean, clone_current ? " (cloned from current)" : "");
+    return 1;
+}
+
+int fs_save_profile_delete(const char *name) {
+    ready();
+    char clean[64];
+    sanitize_profile_name(name, clean, sizeof clean);
+    if (!strcmp(clean, "default") || !strcmp(clean, save_profile_name)) return 0;
+    char dst_base[PATH_CAP];
+    save_profile_base(profile, clean, dst_base, sizeof dst_base);
+    return remove_tree(dst_base) == 0;
+}
+
 static void storage_init(void *param) {
     (void)param;
     if (!*profile)
         need(snprintf(profile, sizeof profile, "%s", rt_config()->profile) < (int)sizeof profile, "profile path");
+    sanitize_profile_name(cfg_value("MTF_SAVE_PROFILE"), save_profile_name, sizeof save_profile_name);
+    char base[PATH_CAP];
+    save_profile_base(profile, save_profile_name, base, sizeof base);
     uint64_t uid[2];
     char p[PATH_CAP];
     make_dirs(profile);
+    make_dirs(base);
     account_uid(uid);
-    snprintf(p, sizeof p, "%s/save", profile);
+    snprintf(p, sizeof p, "%s/save", base);
     make_dirs(p);
-    need(snprintf(save_root, sizeof save_root, "%s/save/%016llx%016llx", profile, (unsigned long long)uid[1],
+    need(snprintf(save_root, sizeof save_root, "%s/save/%016llx%016llx", base, (unsigned long long)uid[1],
                   (unsigned long long)uid[0]) < (int)sizeof save_root, "save path");
-    need(snprintf(tx_root, sizeof tx_root, "%s/save-tx", profile) < (int)sizeof tx_root, "save path");
+    need(snprintf(tx_root, sizeof tx_root, "%s/save-tx", base) < (int)sizeof tx_root, "save path");
     snprintf(work_root, sizeof work_root, "%s/work", tx_root);
-    snprintf(backup_root, sizeof backup_root, "%s/save-backup", profile);
+    snprintf(backup_root, sizeof backup_root, "%s/save-backup", base);
     make_dirs(tx_root);
     make_dirs(backup_root);
     snprintf(new_root, sizeof new_root, "%s/new", tx_root);
     snprintf(old_root, sizeof old_root, "%s/old", tx_root);
     save_recover();   // before save_root is created: an absent save_root means a commit to complete
     make_dirs(save_root);
+    char mp[PATH_CAP];
+    save_meta_path_for(profile, save_profile_name, mp, sizeof mp);
+    save_tainted_cached = read_tainted_file(mp);
     snprintf(p, sizeof p, "%s/temp", profile);
     remove_tree(p);
     make_dirs(p);
     snprintf(p, sizeof p, "%s/cache", profile);
     make_dirs(p);
     plat_xchg32(&storage_ready, 1);
-    rt_log("host save storage: %s", save_root);
+    rt_log("host save storage: %s (profile '%s', cheats_used=%d)", save_root, save_profile_name, (int)save_tainted_cached);
     return;
 }
 

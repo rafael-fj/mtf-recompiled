@@ -1,4 +1,5 @@
 #include "cheats.h"
+#include "achievements.h"
 #include "cfg.h"
 #include "host.h"
 #include "platform/platform.h"
@@ -84,6 +85,8 @@ void cheats_tick(void) {
     for (int i = 0; i < CHEAT_COUNT; i++) {
         int want = cfg_bool(kCheatKeys[i]) ? 1 : 0;
         if (want) {
+            fs_save_profile_mark_tainted();
+            achievements_notify_casual("Cheats enabled");
             apply_category(mem, i, 1);
         } else if (g_prev_state[i]) {
             apply_category(mem, i, 0);

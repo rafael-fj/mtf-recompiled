@@ -62,6 +62,7 @@ target_compile_options(mtf-generated-code PRIVATE
 
 # Host runtime: Horizon kernel and services, NVN on Vulkan, audio, input, the settings menu.
 set(MTF_RUNTIME_SOURCES
+    runtime/achievements.c
     runtime/amiibo.c
     runtime/audio_effects.c
     runtime/audio_mixer.c

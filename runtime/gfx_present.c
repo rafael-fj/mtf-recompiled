@@ -24,6 +24,7 @@
 #include "platform/platform.h"
 #include "stream_host.h"
 #include "cheats.h"
+#include "achievements.h"
 #include "ui/menu.h"
 #include "vk.h"
 
@@ -747,6 +748,7 @@ static void present_image(VkImage src, VkImageLayout layout, VkFormat fmt, int w
     if (cy + ch > h) ch = h - cy;
     window_settings_live();
     cheats_tick();
+    achievements_tick();
     // The menu overlay: laid out before recording (its first frame starts the ImGui back end and uploads the font)
     const char *menu_shot = NULL;
     MenuTarget mt = {c->instance, c->phys, c->device, c->gfx_family, c->gfx_queue,
