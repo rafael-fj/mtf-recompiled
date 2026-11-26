@@ -1,8 +1,35 @@
-// Clean-room Horizon OS nn::ldn (Link Play) & nn::socket UDP HLE over Winsock2.
+// Clean-room Horizon OS nn::ldn (Link Play) & nn::socket UDP HLE over Winsock2 / POSIX sockets.
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+typedef int socklen_t;
+static int sock_errno(void) { return WSAGetLastError(); }
+static void sock_set_nonblock(SOCKET s, int nb) { u_long v = nb ? 1 : 0; ioctlsocket(s, FIONBIO, &v); }
+#else
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
+typedef int SOCKET;
+typedef int BOOL;
+#define TRUE 1
+#define FALSE 0
+#define INVALID_SOCKET (-1)
+#define closesocket close
+#define WSAPOLLFD struct pollfd
+#define WSAPoll poll
+static int sock_errno(void) { return errno; }
+static void sock_set_nonblock(SOCKET s, int nb) {
+    int flags = fcntl(s, F_GETFL, 0);
+    if (flags >= 0) fcntl(s, F_SETFL, nb ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK));
+}
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -110,8 +137,12 @@ static void signal_state_event(void) {
 
 static void wsa_init_once(void) {
     if (g_wsa_ok) return;
+#ifdef _WIN32
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) == 0) g_wsa_ok = 1;
+#else
+    g_wsa_ok = 1;
+#endif
 }
 
 static void send_ctrl_to(uint32_t ip_net, uint16_t port_host, uint8_t type, int8_t node_id,
@@ -284,7 +315,7 @@ static void ldn_ctrl_thread(void *arg) {
     uint8_t buf[sizeof(PktHdr) + sizeof(SyncPayload) + 64];
     for (;;) {
         struct sockaddr_in from;
-        int fromlen = sizeof from;
+        socklen_t fromlen = sizeof from;
         int n = recvfrom(g_ctrl_sock, (char *)buf, sizeof buf, 0, (struct sockaddr *)&from, &fromlen);
         if (n > 0) handle_ctrl_packet(buf, n, &from);
         else plat_wait_ns(5000000);
@@ -299,8 +330,7 @@ static void ensure_ctrl_started(int prefer_host_port) {
     if (s == INVALID_SOCKET) return;
     BOOL bc = TRUE;
     setsockopt(s, SOL_SOCKET, SO_BROADCAST, (const char *)&bc, sizeof bc);
-    u_long nb = 1;
-    ioctlsocket(s, FIONBIO, &nb);
+    sock_set_nonblock(s, 1);
     struct sockaddr_in sa = {0};
     sa.sin_family = AF_INET;
     sa.sin_addr.s_addr = INADDR_ANY;
@@ -313,7 +343,7 @@ static void ensure_ctrl_started(int prefer_host_port) {
             return;
         }
     }
-    int slen = sizeof sa;
+    socklen_t slen = sizeof sa;
     getsockname(s, (struct sockaddr *)&sa, &slen);
     g_ctrl_sock = s;
     g_ctrl_port = ntohs(sa.sin_port);
@@ -580,6 +610,7 @@ uint32_t ldn_nifm_ip_info(uint32_t *ip, uint32_t *mask, uint32_t *gw, uint32_t *
 
 // ---- nn::socket UDP backend
 static int map_wsa_errno(int w) {
+#ifdef _WIN32
     switch (w) {
     case WSAEWOULDBLOCK: return 35;  // EAGAIN / EWOULDBLOCK on Horizon BSD
     case WSAEADDRINUSE: return 48;
@@ -588,6 +619,14 @@ static int map_wsa_errno(int w) {
     case WSAENOTCONN: return 57;
     default: return 22; // EINVAL
     }
+#else
+    if (w == EAGAIN || w == EWOULDBLOCK) return 35;
+    if (w == EADDRINUSE) return 48;
+    if (w == ENETDOWN) return 50;
+    if (w == ECONNRESET) return 54;
+    if (w == ENOTCONN) return 57;
+    return 22;
+#endif
 }
 
 static LdnSock *get_sock(int fd) {
@@ -605,7 +644,7 @@ int ldn_sock_socket(int family, int type, int proto) {
     int wf = (family == 2 || family == 0) ? AF_INET : family;
     int wt = (type == 2) ? SOCK_DGRAM : (type == 1) ? SOCK_STREAM : type;
     SOCKET s = socket(wf, wt, proto);
-    if (s == INVALID_SOCKET) { g_last_errno = map_wsa_errno(WSAGetLastError()); return -1; }
+    if (s == INVALID_SOCKET) { g_last_errno = map_wsa_errno(sock_errno()); return -1; }
     BOOL bc = TRUE;
     setsockopt(s, SOL_SOCKET, SO_BROADCAST, (const char *)&bc, sizeof bc);
     plat_mutex_lock(&g_lock);
@@ -630,11 +669,11 @@ int ldn_sock_bind(int fd, const void *addr, uint32_t addrlen) {
     if (bind(sk->s, (const struct sockaddr *)&sa, sizeof sa) != 0) {
         sa.sin_port = 0;
         if (bind(sk->s, (const struct sockaddr *)&sa, sizeof sa) != 0) {
-            g_last_errno = map_wsa_errno(WSAGetLastError());
+            g_last_errno = map_wsa_errno(sock_errno());
             return -1;
         }
     }
-    int slen = sizeof sa;
+    socklen_t slen = sizeof sa;
     getsockname(sk->s, (struct sockaddr *)&sa, &slen);
     uint16_t real_port = ntohs(sa.sin_port);
     plat_mutex_lock(&g_lock);
@@ -658,8 +697,7 @@ int ldn_sock_setsockopt(int fd, int level, int optname, const void *optval, uint
     if (!sk) { g_last_errno = 9; return -1; }
     // Horizon SOL_SOCKET = 0xffff; SO_NONBLOCK = 0x1022, SO_BROADCAST = 0x0020, SO_REUSEADDR = 0x0004
     if (level == 0xffff && optname == 0x1022 && optval && optlen >= 4) {
-        u_long nb = *(const uint32_t *)optval ? 1 : 0;
-        ioctlsocket(sk->s, FIONBIO, &nb);
+        sock_set_nonblock(sk->s, *(const uint32_t *)optval ? 1 : 0);
         return 0;
     }
     if (level == 0xffff && optname == 0x0020 && optval && optlen >= 4) {
@@ -719,7 +757,7 @@ int64_t ldn_sock_sendto(int fd, const void *buf, uint64_t len, int flags, const 
                 sa.sin_addr.s_addr = rip;
                 sa.sin_port = htons(rport);
                 int sent = sendto(sk->s, (const char *)buf, (int)len, 0, (const struct sockaddr *)&sa, sizeof sa);
-                if (sent < 0) { g_last_errno = map_wsa_errno(WSAGetLastError()); return -1; }
+                if (sent < 0) { g_last_errno = map_wsa_errno(sock_errno()); return -1; }
                 return sent;
             }
         }
@@ -729,7 +767,7 @@ int64_t ldn_sock_sendto(int fd, const void *buf, uint64_t len, int flags, const 
     sa.sin_addr.s_addr = htonl(dst_ip_host);
     sa.sin_port = htons(dst_port);
     int sent = sendto(sk->s, (const char *)buf, (int)len, 0, (const struct sockaddr *)&sa, sizeof sa);
-    if (sent < 0) { g_last_errno = map_wsa_errno(WSAGetLastError()); return -1; }
+    if (sent < 0) { g_last_errno = map_wsa_errno(sock_errno()); return -1; }
     return sent;
 }
 
@@ -738,9 +776,9 @@ int64_t ldn_sock_recvfrom(int fd, void *buf, uint64_t len, int flags, void *addr
     LdnSock *sk = get_sock(fd);
     if (!sk) { g_last_errno = 9; return -1; }
     struct sockaddr_in sa = {0};
-    int slen = sizeof sa;
+    socklen_t slen = sizeof sa;
     int got = recvfrom(sk->s, (char *)buf, (int)len, 0, (struct sockaddr *)&sa, &slen);
-    if (got < 0) { g_last_errno = map_wsa_errno(WSAGetLastError()); return -1; }
+    if (got < 0) { g_last_errno = map_wsa_errno(sock_errno()); return -1; }
     if (addr && addrlen && *addrlen >= 16) {
         uint32_t src_ip = sa.sin_addr.s_addr;
         uint16_t src_port = ntohs(sa.sin_port);

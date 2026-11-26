@@ -169,8 +169,7 @@ static int create_instance(void) {
 }
 
 static const char *const k_required_ext[] = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME,
-    VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME};
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME};
 
 // Name of the first missing required extension, or NULL.
 static const char *missing_required(VkPhysicalDevice pd) {
@@ -219,7 +218,11 @@ static int pick_device(void) {
                VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion));
         if (want >= 0 && (int)i != want) continue;
         if (name && *name && !name_has(p.deviceName, name)) continue;
-        if (p.apiVersion < VK_API_VERSION_1_3) { rt_log("vk: gpu %u skipped: Vulkan below 1.3", i); continue; }
+        if (p.apiVersion < VK_API_VERSION_1_3) {
+            if (want != (int)i) { rt_log("vk: gpu %u skipped: Vulkan below 1.3", i); continue; }
+            rt_log("vk: gpu %u: Vulkan below 1.3 (%u.%u.%u), trying anyway due to MTF_GPU_INDEX", i,
+                   VK_API_VERSION_MAJOR(p.apiVersion), VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion));
+        }
         const char *miss = missing_required(pd[i]);
         if (miss) { rt_log("vk: gpu %u skipped: missing extension %s", i, miss); continue; }
         uint32_t nq = 0;
@@ -293,6 +296,8 @@ static int create_device(void) {
     const char *ext[56];
     uint32_t n_ext = 0;
     for (size_t i = 0; i < sizeof k_required_ext / sizeof *k_required_ext; i++) ext[n_ext++] = k_required_ext[i];
+    int has_emh = has_ext(ep, ne, VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
+    if (has_emh) ext[n_ext++] = VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME;
 
     FeatureChain *c = calloc(1, sizeof *c);
     void **tail = &c->f2.pNext;
@@ -434,10 +439,14 @@ static int create_device(void) {
     if (g_vk.xfer_family != g_vk.gfx_family) vkGetDeviceQueue(g_vk.device, g_vk.xfer_family, 0, &g_vk.xfer_queue);
     else { g_vk.xfer_queue = g_vk.gfx_queue; g_vk.xfer_shared = 1; }
 
-    VkPhysicalDeviceExternalMemoryHostPropertiesEXT emh = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT};
-    VkPhysicalDeviceProperties2 p2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &emh};
-    vkGetPhysicalDeviceProperties2(g_vk.phys, &p2);
-    g_vk.min_imported_host_alignment = (uint32_t)emh.minImportedHostPointerAlignment;
+    if (has_emh) {
+        VkPhysicalDeviceExternalMemoryHostPropertiesEXT emh = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT};
+        VkPhysicalDeviceProperties2 p2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &emh};
+        vkGetPhysicalDeviceProperties2(g_vk.phys, &p2);
+        g_vk.min_imported_host_alignment = (uint32_t)emh.minImportedHostPointerAlignment;
+    } else {
+        g_vk.min_imported_host_alignment = 0;
+    }
     vk_caps_init(&g_vk);
 
     VmaAllocatorCreateInfo ai = {.physicalDevice = g_vk.phys, .device = g_vk.device, .instance = g_vk.instance,

@@ -208,6 +208,7 @@ static void scan_dt(uint64_t frame) {
     FILE *f = fopen(name, "w");
     if (!f) return;
     uint64_t n60 = 0, n30 = 0, nrange = 0;
+#ifdef _WIN32
     MEMORY_BASIC_INFORMATION m;
     for (uint8_t *a = (uint8_t *)0x10000; VirtualQuery(a, &m, sizeof m); a = (uint8_t *)m.BaseAddress + m.RegionSize) {
         if (m.State != MEM_COMMIT || m.Type != MEM_PRIVATE || m.Protect != PAGE_READWRITE) continue;
@@ -221,6 +222,7 @@ static void scan_dt(uint64_t frame) {
             if (nrange <= 200000) fprintf(f, "%p %08x\n", (void *)&w[i], v);
         }
     }
+#endif
     fclose(f);
     rt_log("scan_dt: frame %llu: %llu floats in 0.015..0.04, %llu of 1/60, %llu of 1/30 (%s)", (unsigned long long)frame,
            (unsigned long long)nrange, (unsigned long long)n60, (unsigned long long)n30, name);

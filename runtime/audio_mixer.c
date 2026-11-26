@@ -98,7 +98,7 @@ static void report_once(Mixer *m, unsigned bit, const char *msg, int value) {
 #ifdef __linux__
 #define PREFILL_DEFAULT_MS 60
 #else
-#define PREFILL_DEFAULT_MS 20
+#define PREFILL_DEFAULT_MS 30
 #endif
 static int prefill_blocks_for(const char *e) {
     if (!e || !*e) return PREFILL_DEFAULT_MS / 5;

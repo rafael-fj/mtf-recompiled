@@ -11,8 +11,10 @@
 // Keyboard (while this process's window is in front): WASD left stick, arrow keys right stick, IJKL... see keymap
 // below; Space shakes the controller (the swing the six-axis sensor reports).
 // Contains adapted code under the MIT licence: authors and licence texts in THIRD_PARTY_NOTICES.md.
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#endif
 
 #include <SDL3/SDL.h>
 #include <math.h>
@@ -44,6 +46,7 @@ static uint64_t pad_buttons_arr[INPUT_MAX_PADS];
 static int32_t pad_axes_arr[INPUT_MAX_PADS][4];
 
 // ---- keyboard
+#ifdef _WIN32
 static const struct { uint8_t key; uint8_t vk; } key_vks[] = {
     {KEY_SPACE, VK_SPACE}, {KEY_TAB, VK_TAB}, {KEY_LSHIFT, VK_LSHIFT}, {KEY_LCTRL, VK_LCONTROL},
     {KEY_UP, VK_UP}, {KEY_DOWN, VK_DOWN}, {KEY_LEFT, VK_LEFT}, {KEY_RIGHT, VK_RIGHT},
@@ -87,6 +90,26 @@ static void read_key_down(uint8_t down[KEY_COUNT]) {
         if (vk && key(vk)) down[k] = 1;
     }
 }
+#else
+static void read_key_down(uint8_t down[KEY_COUNT]) {
+    memset(down, 0, KEY_COUNT);
+    const bool *st = SDL_GetKeyboardState(NULL);
+    if (!st) return;
+    for (int k = KEY_A; k <= KEY_Z; k++) down[k] = st[SDL_SCANCODE_A + (k - KEY_A)] ? 1 : 0;
+    for (int k = KEY_1; k <= KEY_9; k++) down[k] = st[SDL_SCANCODE_1 + (k - KEY_1)] ? 1 : 0;
+    down[KEY_0] = st[SDL_SCANCODE_0] ? 1 : 0;
+    down[KEY_SPACE] = st[SDL_SCANCODE_SPACE] ? 1 : 0;
+    down[KEY_TAB] = st[SDL_SCANCODE_TAB] ? 1 : 0;
+    down[KEY_LSHIFT] = st[SDL_SCANCODE_LSHIFT] ? 1 : 0;
+    down[KEY_LCTRL] = st[SDL_SCANCODE_LCTRL] ? 1 : 0;
+    down[KEY_UP] = st[SDL_SCANCODE_UP] ? 1 : 0;
+    down[KEY_DOWN] = st[SDL_SCANCODE_DOWN] ? 1 : 0;
+    down[KEY_LEFT] = st[SDL_SCANCODE_LEFT] ? 1 : 0;
+    down[KEY_RIGHT] = st[SDL_SCANCODE_RIGHT] ? 1 : 0;
+    down[KEY_ENTER] = st[SDL_SCANCODE_RETURN] ? 1 : 0;
+    down[KEY_BACKSPACE] = st[SDL_SCANCODE_BACKSPACE] ? 1 : 0;
+}
+#endif
 
 static void keyboard_read(uint64_t *buttons, int32_t axes[4]) {
     uint8_t down[KEY_COUNT];
@@ -595,6 +618,15 @@ void input_list_pads(InputPadList *out) {
     plat_mutex_unlock(&lock);
 }
 
+static int auto_pad_connected(int player) {
+    if (player <= 0 || player >= INPUT_MAX_PADS) return 0;
+    plat_mutex_lock(&lock);
+    start();
+    int conn = pads[player] != NULL;
+    plat_mutex_unlock(&lock);
+    return conn;
+}
+
 int input_player_connected(int player) {
     if (player < 0 || player >= INPUT_MAX_PLAYERS) return 0;
     if (stream_host_remote_connected(player)) return 1;
@@ -602,13 +634,14 @@ int input_player_connected(int player) {
     int mp_on = cfg_bool("MTF_MULTIPLAYER_INPUT");
     if (!mp_logged) {
         mp_logged = 1;
-        rt_log("input: multiplayer input %s (MTF_MULTIPLAYER_INPUT)", mp_on ? "on" : "off");
+        rt_log("input: multiplayer input %s (MTF_MULTIPLAYER_INPUT)", mp_on ? "on" : "auto");
     }
-    if (!mp_on) return player == 0;
+    if (!mp_on) return player == 0 || auto_pad_connected(player);
     const char *src = cfg_get(player_cfg_key(player));
     if (!src || !*src) return player == 0;
     if (!strcmp(src, "none")) return 0;
-    if (!strcmp(src, "auto") || !strcmp(src, "keyboard")) return 1;
+    if (!strcmp(src, "auto")) return player == 0 || auto_pad_connected(player);
+    if (!strcmp(src, "keyboard")) return 1;
     if (!strncmp(src, "pad:", 4)) {
         int idx = atoi(src + 4);
         if (idx < 0 || idx >= INPUT_MAX_PADS) return 0;
@@ -634,8 +667,21 @@ void input_poll_player(int player, uint64_t *buttons, int32_t *lx, int32_t *ly, 
         return;
     }
     if (!cfg_bool("MTF_MULTIPLAYER_INPUT")) {
-        if (player == 0) input_poll(buttons, lx, ly, rx, ry);
-        else { *buttons = 0; *lx = *ly = *rx = *ry = 0; }
+        if (player == 0) { input_poll(buttons, lx, ly, rx, ry); return; }
+        uint64_t b = 0;
+        int32_t a[4] = {0};
+        if (player > 0 && player < INPUT_MAX_PADS) {
+            plat_mutex_lock(&lock);
+            start();
+            if (pads[player]) {
+                b = pad_buttons_arr[player];
+                memcpy(a, pad_axes_arr[player], sizeof a);
+            }
+            plat_mutex_unlock(&lock);
+        }
+        if (menu_is_open()) { b = 0; memset(a, 0, sizeof a); }
+        *buttons = b;
+        *lx = a[0], *ly = a[1], *rx = a[2], *ry = a[3];
         return;
     }
     const char *src = player_cfg_key(player) ? cfg_get(player_cfg_key(player)) : "none";
@@ -646,7 +692,15 @@ void input_poll_player(int player, uint64_t *buttons, int32_t *lx, int32_t *ly, 
     }
     uint64_t b = 0;
     int32_t a[4] = {0};
-    if (!strcmp(src, "keyboard")) {
+    if (!strcmp(src, "auto") && player > 0 && player < INPUT_MAX_PADS) {
+        plat_mutex_lock(&lock);
+        start();
+        if (pads[player]) {
+            b = pad_buttons_arr[player];
+            memcpy(a, pad_axes_arr[player], sizeof a);
+        }
+        plat_mutex_unlock(&lock);
+    } else if (!strcmp(src, "keyboard")) {
         keyboard_read(&b, a);
     } else if (!strncmp(src, "pad:", 4)) {
         int idx = atoi(src + 4);
@@ -714,15 +768,18 @@ int input_rumble(float low, float high, uint32_t ms) {
 }
 
 // ---- the game window's mouse: this port reads no mouse, so the window keeps the cursor
+#ifdef _WIN32
 int input_window_msg(HWND h, UINT m, WPARAM w, LPARAM l, LRESULT *res) {
     (void)h, (void)w, (void)l, (void)res;
     if (m == WM_KEYDOWN || m == WM_SYSKEYDOWN || m == WM_LBUTTONDOWN || m == WM_RBUTTONDOWN)
         __atomic_store_n(&last_dev, INPUT_DEV_KEYBOARD, __ATOMIC_RELAXED);
     return 0;
 }
+#endif
 void input_cursor_suspend(int on) { (void)on; }
 
 uint32_t input_key_char(int k) {
+#ifdef _WIN32
     if (k < KEY_MINUS || k > KEY_GRAVE) return 0;
     int vk = key_to_vk(k);
     if (!vk) return 0;
@@ -730,6 +787,9 @@ uint32_t input_key_char(int k) {
     BYTE ks[256] = {0};
     WCHAR out[4] = {0};
     if (ToUnicode((UINT)vk, sc, ks, out, 4, 0) == 1 && out[0] >= 0x21 && out[0] != 0x7f) return out[0];
+#else
+    (void)k;
+#endif
     return 0;
 }
 

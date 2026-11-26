@@ -84,32 +84,49 @@ def module_glue(info: dict[str, object], exefs: Path, romfs: Path, user: Path, p
     linked = info["linked"]
     hashes = info["hashes"]
     out = ["// Module glue written by recomp/glue.py; do not edit.",
-           '#include "dispatch.h"', '#include "host.h"', '#include "layout.h"', ""]
+           '#include "dispatch.h"', '#include "game_abi.h"', '#include "host.h"', '#include "layout.h"', ""]
     for name, base, size in layout:
         upper = name.upper()
         out.append(f"_Static_assert(MOD_{upper}_BASE == {base:#x}ull && MOD_{upper}_SIZE == {size:#x}ull, "
                    f'"layout.h and layout.json disagree on {name}");')
-    out += ["", "const RtLayoutEntry rt_layout[] = {"]
+    out += ["", "static const RtLayoutEntry glue_layout[] = {"]
     out += [f'    {{"{name}", MOD_{name.upper()}_BASE, MOD_{name.upper()}_SIZE}},' for name, _, _ in layout]
-    out += ["};", f"const int rt_layout_count = {len(layout)};", ""]
+    out += ["};", ""]
     for name in linked:
         out += [f"extern const uint64_t {name}_fn_addrs[];", f"extern const GuestFn {name}_fn_ptrs[];",
                 f"extern const uint64_t {name}_fn_count;"]
-    out += ["", "int rt_linked_modules(RtModule *out, int max) {", "    int n = 0;"]
+    out += ["", "static int glue_linked_modules(RtModule *out, int max) {", "    int n = 0;"]
     for name in linked:
         upper = name.upper()
         out.append(f'    if (n < max) out[n++] = (RtModule){{"{name}", MOD_{upper}_BASE, MOD_{upper}_SIZE, '
                    f"{name}_fn_addrs, {name}_fn_ptrs, {name}_fn_count}};")
-    out += ["    return n;", "}", "", "const RtFileHash rt_exefs_sha256[] = {"]
+    out += ["    return n;", "}", "", "static const RtFileHash glue_exefs_sha256[] = {"]
     out += [f"    {{{_c_string(name)}, {_c_string(digest)}}}," for name, digest in sorted(hashes.items())]
-    out += ["};", f"const int rt_exefs_sha256_count = {len(hashes)};", ""]
+    out += ["};", ""]
     def where(p: Path) -> str:   # relative paths stay relative: the runtime takes them from the exe's folder
         return p.as_posix() if not p.is_absolute() and portable else p.resolve().as_posix()
-    out += [f"const char rt_default_exefs[] = {_c_string(where(exefs))};",
-            f"const char rt_default_romfs[] = {_c_string(where(romfs))};",
-            f"const char rt_default_profile[] = {_c_string(where(user))};",
-            "const int rt_game_version = 111;",
-            f"const char rt_port_version[] = {_c_string(PORT_VERSION)};", ""]
+    out += [f"static const char glue_default_exefs[] = {_c_string(where(exefs))};",
+            f"static const char glue_default_romfs[] = {_c_string(where(romfs))};",
+            f"static const char glue_default_profile[] = {_c_string(where(user))};",
+            "",
+            "#ifdef MTF_GAME_DLL",
+            "__declspec(dllexport)",
+            "#endif",
+            "const MtfGameDesc *mtf_game_desc(void) {",
+            "    static const MtfGameDesc desc = {",
+            "        MTF_GAME_ABI_VERSION,",
+            "        glue_layout,",
+            f"        {len(layout)},",
+            "        glue_linked_modules,",
+            "        glue_exefs_sha256,",
+            f"        {len(hashes)},",
+            "        glue_default_exefs,",
+            "        glue_default_romfs,",
+            "        glue_default_profile,",
+            "        111,",
+            "    };",
+            "    return &desc;",
+            "}", ""]
     return "\n".join(out)
 
 

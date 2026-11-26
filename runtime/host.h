@@ -190,12 +190,12 @@ uint64_t rt_lifted_function(uintptr_t host);               // guest start of the
 uint8_t *ldr_read_verified(const char *dir, const char *file, size_t *len);   // whole file, SHA-256 checked against
                                                            // modules.c (fatal on mismatch); free() it
 
-// Written by tools/build_game.py into build/<version>/modules.c.
+// Bound from mtf-game.dll (or statically linked modules.c) at startup via game_host_load().
 typedef struct { const char *file, *sha256; } RtFileHash;
-extern const RtFileHash rt_exefs_sha256[];                 // tools/data/expected-<version>.json "exefs_sha256"
-extern const int rt_exefs_sha256_count;
-extern const char rt_default_exefs[], rt_default_romfs[], rt_default_profile[];
-extern const int rt_game_version;                          // the game build: 111 (1.1.1)
+extern const RtFileHash *rt_exefs_sha256;
+extern int rt_exefs_sha256_count;
+extern const char *rt_default_exefs, *rt_default_romfs, *rt_default_profile;
+extern int rt_game_version;                                // the game build: 111 (1.1.1)
 extern const char rt_port_version[];                       // VERSION at the build's root: 0.1.0, 0.1.0+973c626 in a release
 
 // ---- kernel (kernel.c)

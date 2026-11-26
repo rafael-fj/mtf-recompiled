@@ -64,8 +64,9 @@ class Reporter:
     def emit(self, type, **fields):
         event = {'type': type, 't': round(self.elapsed(), 2), **fields}
         with self.lock:
-            self.out.write(json.dumps(event, ensure_ascii=False) + '\n')
-            self.out.flush()
+            if self.out is not None:
+                self.out.write(json.dumps(event, ensure_ascii=False) + '\n')
+                self.out.flush()
         self.log(self.describe(event))
         return event
 

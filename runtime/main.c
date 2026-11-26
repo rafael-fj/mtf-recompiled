@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "cfg.h"
+#include "game_abi.h"
 #include "host.h"
 #include "platform/platform.h"
 #include "sha256.h"
@@ -478,6 +479,7 @@ static int usage(const char *argv0) {
 }
 
 int main(int argc, char **argv) {
+    game_host_load();
     mem_init();   // first: claim the guest address space before anything else can land there; reads mtf.ini
     rt_log("version: MTF Recomp %s, game 1.1.1", rt_port_version);
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -489,8 +491,15 @@ int main(int argc, char **argv) {
     if (cfg_bool("MTF_TIMER_1MS")) plat_timer_1ms();
     rt_log("power: %s", plat_power_full() ? "OS power throttling off (EcoQoS, timer resolution in the background)"
                                           : "OS power throttling: the opt-out was refused");
+#ifdef _WIN32
+    const char *def_profile = beside_exe(rt_default_profile);
+#else
+    const char *def_profile = rt_default_profile[0] && rt_default_profile[1] == ':'
+                                  ? beside_exe("profile")
+                                  : beside_exe(rt_default_profile);
+#endif
     cfg = (RtConfig){.exefs = beside_exe(rt_default_exefs), .romfs = beside_exe(rt_default_romfs),
-                     .profile = beside_exe(rt_default_profile),
+                     .profile = def_profile,
                      .gpu = cfg_get("MTF_GPU")};
     if (cfg_get("MTF_EXEFS")) cfg.exefs = cfg_get("MTF_EXEFS");
     if (cfg_get("MTF_ROMFS")) cfg.romfs = cfg_get("MTF_ROMFS");

@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(mtf-recomp VERSION 0.1.0 LANGUAGES C CXX RC)
+if(WIN32)
+    project(mtf-recomp VERSION 0.1.0 LANGUAGES C CXX RC)
+else()
+    project(mtf-recomp VERSION 0.1.0 LANGUAGES C CXX)
+endif()
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -68,11 +72,11 @@ set(MTF_RUNTIME_SOURCES
     runtime/diag_watch.c
     runtime/dispatch.c
     runtime/fs_host.c
+    runtime/game_host.c
     runtime/gfx_null.c
     runtime/gfx_present.c
     runtime/gfx_shader.c
     runtime/gfx_stubs.c
-    runtime/gfx_window_win.c
     runtime/glyph_draw.c
     runtime/hostfn.c
     runtime/input.c
@@ -106,10 +110,7 @@ set(MTF_RUNTIME_SOURCES
     runtime/ro.c
     runtime/romfs.c
     runtime/sha256.c
-    runtime/stream_host.c
     runtime/cheats.c
-    runtime/stream_webrtc.cpp
-    runtime/stream_hwenc.cpp
     runtime/stubs.c
     runtime/svc.c
     runtime/tex_astc.c
@@ -141,11 +142,9 @@ set(MTF_RUNTIME_SOURCES
     runtime/vk_vma.cpp
     runtime/perfmon.c
     runtime/platform/common.c
-    runtime/platform/win32.c
     # the in-game settings menu (Minus+Plus, F1, Esc) on Dear ImGui
     runtime/ui/menu.cpp
     runtime/ui/binds_page.cpp
-    runtime/ui/menu_win.cpp
     runtime/ui/option_rows.cpp
     runtime/ui_text.c
     runtime/update_check.c
@@ -154,15 +153,42 @@ set(MTF_RUNTIME_SOURCES
     runtime/third_party/imgui/imgui_tables.cpp
     runtime/third_party/imgui/imgui_widgets.cpp
     runtime/third_party/imgui/backends/imgui_impl_vulkan.cpp
-    # icon and application manifest (per-monitor DPI awareness, UTF-8 code page)
-    runtime/mtf.rc
 )
+if(WIN32)
+    list(APPEND MTF_RUNTIME_SOURCES
+        runtime/gfx_window_win.c
+        runtime/platform/win32.c
+        runtime/ui/menu_win.cpp
+        runtime/stream_host.c
+        runtime/stream_webrtc.cpp
+        runtime/stream_hwenc.cpp
+        runtime/mtf.rc
+    )
+else()
+    list(APPEND MTF_RUNTIME_SOURCES
+        runtime/gfx_window_sdl.c
+        runtime/platform/linux.c
+        runtime/ui/menu_sdl.cpp
+        runtime/stream_linux_stub.c
+    )
+endif()
 
-add_executable(mtf-recomp
-    ${MTF_RUNTIME_SOURCES}
-    "${MTF_GLUE_DIR}/modules.c"
-    $<TARGET_OBJECTS:mtf-generated-code>
-)
+if(WIN32)
+    add_executable(mtf-recomp ${MTF_RUNTIME_SOURCES})
+else()
+    add_executable(mtf-recomp
+        ${MTF_RUNTIME_SOURCES}
+        "${MTF_GLUE_DIR}/modules.c"
+        $<TARGET_OBJECTS:mtf-generated-code>
+    )
+endif()
+
+if(EXISTS "${PROJECT_SOURCE_DIR}/VERSION")
+    file(READ "${PROJECT_SOURCE_DIR}/VERSION" MTF_PORT_VERSION_RAW)
+    string(STRIP "${MTF_PORT_VERSION_RAW}" MTF_PORT_VERSION_STR)
+else()
+    set(MTF_PORT_VERSION_STR "0.1.0")
+endif()
 target_include_directories(mtf-recomp PRIVATE
     "${PROJECT_SOURCE_DIR}/runtime"
     "${PROJECT_SOURCE_DIR}/runtime/third_party/imgui"
@@ -170,25 +196,69 @@ target_include_directories(mtf-recomp PRIVATE
 )
 target_include_directories(mtf-recomp SYSTEM PRIVATE "${MTF_DEPS_DIR}/include" "${MTF_DEPS_DIR}/include/vma")
 target_link_directories(mtf-recomp PRIVATE "${MTF_DEPS_DIR}/lib")
-target_compile_definitions(mtf-recomp PRIVATE ${MTF_CPU_DEFINE} _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 target_compile_options(mtf-recomp PRIVATE $<$<COMPILE_LANGUAGE:C,CXX>:-O2 -g -Wall -fno-strict-aliasing ${MTF_MARCH}>)
 set_source_files_properties(runtime/vk_vma.cpp PROPERTIES COMPILE_OPTIONS "-std=c++17;-Wno-nullability-completeness")
-set_source_files_properties(runtime/ui/menu.cpp runtime/ui/menu_win.cpp runtime/ui/option_rows.cpp PROPERTIES COMPILE_OPTIONS "-std=c++20")
+set_source_files_properties(runtime/ui/menu.cpp runtime/ui/option_rows.cpp PROPERTIES COMPILE_OPTIONS "-std=c++20")
+if(WIN32)
+    set_source_files_properties(runtime/ui/menu_win.cpp PROPERTIES COMPILE_OPTIONS "-std=c++20")
+else()
+    set_source_files_properties(runtime/ui/menu.cpp PROPERTIES COMPILE_OPTIONS "-std=c++20;-Wa,-I${PROJECT_SOURCE_DIR}/runtime/ui")
+    set_source_files_properties(runtime/ui/menu_sdl.cpp PROPERTIES COMPILE_OPTIONS "-std=c++20")
+endif()
 set_source_files_properties(runtime/third_party/imgui/imgui.cpp runtime/third_party/imgui/imgui_draw.cpp
     runtime/third_party/imgui/imgui_tables.cpp runtime/third_party/imgui/imgui_widgets.cpp
     runtime/third_party/imgui/backends/imgui_impl_vulkan.cpp PROPERTIES COMPILE_OPTIONS "-std=c++17;-w")
-# A 16 MiB main-thread stack: the guest's boot runs on it before the first guest thread exists.
-target_link_options(mtf-recomp PRIVATE -fuse-ld=lld -Wl,--stack,16777216 -Wl,--error-limit=0)
-target_link_libraries(mtf-recomp PRIVATE vulkan-1 SDL3 opus vpx datachannel juice srtp2 usrsctp mbedtls mbedx509 mbedcrypto everest p256m iphlpapi psapi bcrypt user32 gdi32 dwmapi imm32 winmm ole32 oleaut32 mfplat mfuuid shell32 uuid pdh rstrtmgr ws2_32 winhttp)
 
-# The DLLs the executable loads, beside it (Vulkan's loader comes with the GPU driver), and llvm-mingw's C++ runtime
-# for the C++ files (the menu, ImGui, Vulkan Memory Allocator).
-file(GLOB MTF_DEPS_DLLS "${MTF_DEPS_DIR}/bin/*.dll")
-get_filename_component(MTF_CXX_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
-list(APPEND MTF_DEPS_DLLS "${MTF_CXX_BIN}/../x86_64-w64-mingw32/bin/libc++.dll" "${MTF_CXX_BIN}/../x86_64-w64-mingw32/bin/libunwind.dll" "${MTF_CXX_BIN}/../x86_64-w64-mingw32/bin/libwinpthread-1.dll")
-foreach(MTF_DLL IN LISTS MTF_DEPS_DLLS)
-    add_custom_command(TARGET mtf-recomp POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MTF_DLL}" "${MTF_OUTPUT_DIR}/")
-endforeach()
+if(WIN32)
+    target_compile_definitions(mtf-recomp PRIVATE ${MTF_CPU_DEFINE} MTF_RUNTIME_SPLIT MTF_PORT_VERSION="${MTF_PORT_VERSION_STR}" _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+    # A 16 MiB main-thread stack: the guest's boot runs on it before the first guest thread exists.
+    target_link_options(mtf-recomp PRIVATE -fuse-ld=lld -Wl,--stack,16777216 -Wl,--error-limit=0 -Wl,--export-all-symbols,--out-implib,${CMAKE_CURRENT_BINARY_DIR}/libmtf-recomp.dll.a)
+    target_link_libraries(mtf-recomp PRIVATE vulkan-1 SDL3 opus vpx datachannel juice srtp2 usrsctp mbedtls mbedx509 mbedcrypto everest p256m iphlpapi psapi bcrypt user32 gdi32 dwmapi imm32 winmm ole32 oleaut32 mfplat mfuuid shell32 uuid pdh rstrtmgr ws2_32 winhttp)
+
+    add_library(mtf-game SHARED
+        "${MTF_GLUE_DIR}/modules.c"
+        $<TARGET_OBJECTS:mtf-generated-code>
+    )
+    add_dependencies(mtf-game mtf-recomp)
+    target_include_directories(mtf-game PRIVATE "${PROJECT_SOURCE_DIR}/runtime" "${MTF_GLUE_DIR}")
+    target_compile_definitions(mtf-game PRIVATE MTF_GAME_DLL)
+    target_compile_options(mtf-game PRIVATE -O2 -g -Wall -fno-strict-aliasing ${MTF_MARCH})
+    target_link_options(mtf-game PRIVATE -fuse-ld=lld -Wl,--error-limit=0)
+    target_link_libraries(mtf-game PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/libmtf-recomp.dll.a")
+    set_target_properties(mtf-game PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "mtf-game"
+        RUNTIME_OUTPUT_DIRECTORY "${MTF_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${MTF_OUTPUT_DIR}"
+    )
+
+    # The DLLs the executable loads, beside it (Vulkan's loader comes with the GPU driver), and llvm-mingw's C++ runtime
+    # for the C++ files (the menu, ImGui, Vulkan Memory Allocator).
+    file(GLOB MTF_DEPS_DLLS "${MTF_DEPS_DIR}/bin/*.dll")
+    get_filename_component(MTF_CXX_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    list(APPEND MTF_DEPS_DLLS "${MTF_CXX_BIN}/../x86_64-w64-mingw32/bin/libc++.dll" "${MTF_CXX_BIN}/../x86_64-w64-mingw32/bin/libunwind.dll" "${MTF_CXX_BIN}/../x86_64-w64-mingw32/bin/libwinpthread-1.dll")
+    foreach(MTF_DLL IN LISTS MTF_DEPS_DLLS)
+        add_custom_command(TARGET mtf-recomp POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MTF_DLL}" "${MTF_OUTPUT_DIR}/")
+    endforeach()
+
+    add_executable(mtf-updater WIN32 tools/mtf_updater.c)
+    target_compile_options(mtf-updater PRIVATE -O2 -Wall)
+    target_link_libraries(mtf-updater PRIVATE comctl32)
+    target_link_options(mtf-updater PRIVATE -fuse-ld=lld)
+    set_target_properties(mtf-updater PROPERTIES
+        OUTPUT_NAME "mtf-updater"
+        RUNTIME_OUTPUT_DIRECTORY "${MTF_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${MTF_OUTPUT_DIR}"
+    )
+else()
+    target_compile_definitions(mtf-recomp PRIVATE ${MTF_CPU_DEFINE} MTF_PORT_VERSION="${MTF_PORT_VERSION_STR}" _GNU_SOURCE)
+    target_link_options(mtf-recomp PRIVATE -fuse-ld=lld -Wl,-rpath,$ORIGIN)
+    target_link_libraries(mtf-recomp PRIVATE vulkan SDL3 opus vpx curl pthread dl m)
+    file(GLOB MTF_DEPS_SOS "${MTF_DEPS_DIR}/lib/libSDL3.so*")
+    foreach(MTF_SO IN LISTS MTF_DEPS_SOS)
+        add_custom_command(TARGET mtf-recomp POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MTF_SO}" "${MTF_OUTPUT_DIR}/")
+    endforeach()
+endif()
 
 set_target_properties(mtf-recomp PROPERTIES
     OUTPUT_NAME "mtf-recomp"

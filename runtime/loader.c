@@ -9,8 +9,9 @@
 #include <string.h>
 
 #include "host.h"
-#include "layout.h"
 #include "platform/platform.h"
+
+#define RT_MAX_MODULES 16
 
 // hostfn.c, for the loader only.
 uint64_t hostfn_register_observer(const char *name, GuestFn fn, uint64_t original);
@@ -46,12 +47,12 @@ typedef struct {
     uint64_t *plt_slot, *plt_stub, nplt;   // PLT stubs sorted by GOT slot (ldr_plt_stub), built on first use
     // statistics
     uint64_t kinds[K_COUNT], sym_import, sym_own;
-    uint32_t imports, import_to[MOD_COUNT], weak_unresolved, strong_unresolved;
+    uint32_t imports, import_to[RT_MAX_MODULES], weak_unresolved, strong_unresolved;
     uint32_t init_off;
     uint32_t tlsdesc;                   // TLS descriptor relocations left to the module's DT_INIT
 } Mod;
 
-static Mod mods[MOD_COUNT];
+static Mod mods[RT_MAX_MODULES];
 static int nmods;
 static uint64_t identity_refs, stubs;
 static int *ovr_used, *obs_used;   // per linked table entry, plus probe overrides counted separately
@@ -454,7 +455,7 @@ static void seal(Mod *m) {
 void ldr_load(const char *exefs_dir) {
     if (nmods) rt_fatal("ldr_load called twice");
     if (!mem_layout()->pool) rt_fatal("ldr_load before mem_init");
-    if (rt_layout_count > MOD_COUNT) rt_fatal("loader: %d modules in the layout", rt_layout_count);
+    if (rt_layout_count > RT_MAX_MODULES) rt_fatal("loader: %d modules in the layout", rt_layout_count);
     // The runtime-loaded NRO has a place in the layout but no ExeFS file: nn::ro::LoadModule loads it (ldr_load_image).
     for (int i = 0; i < rt_layout_count; i++)
         if (strcmp(rt_layout[i].name, RUNTIME_MODULE)) load_module(&mods[nmods++], exefs_dir, &rt_layout[i]);
@@ -489,7 +490,7 @@ const RtLoaded *ldr_load_image(const char *name, const uint8_t *image, uint64_t 
     if (!lay) rt_fatal("loader: %s has no place in the layout (lift it first: README.md)", name);
     for (int i = 0; i < nmods; i++)
         if (!strcmp(mods[i].pub.name, name)) rt_fatal("loader: %s is loaded already", name);
-    if (nmods == MOD_COUNT) rt_fatal("loader: no module slot for %s", name);
+    if (nmods == RT_MAX_MODULES) rt_fatal("loader: no module slot for %s", name);
     if (size < 0x80 || memcmp(image + 0x10, "NRO0", 4)) rt_fatal("loader: %s is not an NRO image", name);
     uint32_t seg[3][2], bss;
     memcpy(seg, image + 0x20, sizeof seg);

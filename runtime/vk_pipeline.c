@@ -1594,10 +1594,144 @@ static uint32_t *lower_gs_viewport_mask(const uint32_t *w, uint64_t n, uint64_t 
     return o;
 }
 
+static uint32_t *spirv_init_outputs(const uint32_t *w, uint64_t n, uint64_t *out_n) {
+    enum { OP_STORE = 62, OP_LABEL = 248, SC_FUNC = 7 };
+    if (n < 5) return NULL;
+    uint32_t orig_bound = w[3];
+    if (orig_bound >= (1u << 22)) return NULL;
+    uint32_t ep_model = UINT32_MAX, ep_fn = 0;
+    uint64_t fn_at = 0;
+    uint8_t *has_loc = calloc(orig_bound, 1);
+    uint8_t *sc_kind = calloc(orig_bound, 1);    // 1=float32, 2=sint32, 3=uint32
+    uint32_t *vec_comp = calloc(orig_bound, sizeof *vec_comp);
+    uint8_t *vec_cnt = calloc(orig_bound, 1);
+    uint32_t *ptr_out = calloc(orig_bound, sizeof *ptr_out);
+    struct { uint32_t var, elem_t, cnt; } outs[64];
+    int n_outs = 0;
+    if (!has_loc || !sc_kind || !vec_comp || !vec_cnt || !ptr_out) goto fail;
+
+    for (uint64_t i = 5; i < n;) {
+        uint32_t op = w[i] & 0xffff, l = w[i] >> 16;
+        if (!l || i + l > n) goto fail;
+        const uint32_t *a = w + i + 1;
+        if (op == SPV_OP_ENTRY_POINT && l >= 3 && ep_model == UINT32_MAX) {
+            ep_model = a[0];
+            ep_fn = a[1];
+            if (ep_model != 0 && ep_model != 2 && ep_model != 3) goto fail;   // Vertex, TessEval, Geometry only
+        } else if (op == SPV_OP_DECORATE && l >= 4 && a[1] == SPV_DEC_LOCATION && a[0] < orig_bound) {
+            has_loc[a[0]] = 1;
+        } else if (op == SPV_OP_TYPE_FLOAT && l >= 3 && a[1] == 32 && a[0] < orig_bound) {
+            sc_kind[a[0]] = 1;
+        } else if (op == SPV_OP_TYPE_INT && l >= 4 && a[1] == 32 && a[0] < orig_bound) {
+            sc_kind[a[0]] = a[2] ? 2 : 3;
+        } else if (op == SPV_OP_TYPE_VECTOR && l >= 4 && a[0] < orig_bound) {
+            vec_comp[a[0]] = a[1];
+            vec_cnt[a[0]] = (uint8_t)a[2];
+        } else if (op == SPV_OP_TYPE_POINTER && l >= 4 && a[1] == SPV_SC_OUTPUT && a[0] < orig_bound) {
+            ptr_out[a[0]] = a[2];
+        } else if (op == SPV_OP_VARIABLE && l >= 4 && a[2] == SPV_SC_OUTPUT && a[0] < orig_bound && a[1] < orig_bound) {
+            uint32_t pt = ptr_out[a[0]];
+            if (pt && pt < orig_bound && has_loc[a[1]] && n_outs < 64) {
+                uint32_t et = 0;
+                uint8_t cnt = 0;
+                if (sc_kind[pt]) { et = pt; cnt = 1; }
+                else if (vec_comp[pt] && vec_comp[pt] < orig_bound && sc_kind[vec_comp[pt]] && vec_cnt[pt] >= 2 && vec_cnt[pt] <= 4) {
+                    et = vec_comp[pt];
+                    cnt = vec_cnt[pt];
+                }
+                if (et) outs[n_outs++] = (typeof(outs[0])){a[1], et, cnt};
+            }
+        } else if (op == SPV_OP_FUNCTION) {
+            fn_at = i;
+            break;
+        }
+        i += l;
+    }
+    if (!fn_at || !ep_fn || !n_outs) goto fail;
+
+    // Find insertion point: right after the last Function-scoped OpVariable in ep_fn's entry OpLabel.
+    uint64_t ins_at = 0;
+    int in_ep = 0, in_entry = 0;
+    for (uint64_t i = fn_at; i < n;) {
+        uint32_t op = w[i] & 0xffff, l = w[i] >> 16;
+        if (!l || i + l > n) goto fail;
+        const uint32_t *a = w + i + 1;
+        if (op == SPV_OP_FUNCTION && l >= 5 && a[1] == ep_fn) in_ep = 1;
+        else if (in_ep && op == OP_LABEL && !in_entry) { in_entry = 1; ins_at = i + l; }
+        else if (in_entry && op == SPV_OP_VARIABLE && l >= 4 && a[2] == SC_FUNC) ins_at = i + l;
+        else if (in_entry) break;
+        i += l;
+    }
+    if (!ins_at) goto fail;
+
+    uint32_t bound = orig_bound;
+    uint32_t zero_id[4] = {0}, one_id[4] = {0};   // indexed by sc_kind (1..3)
+    uint32_t init_id[64];
+    uint32_t *consts = malloc((size_t)n_outs * 16 * sizeof(uint32_t));
+    int nc = 0;
+    if (!consts) goto fail;
+
+    for (int k = 0; k < n_outs; k++) {
+        uint32_t pt = 0;
+        // Reconstruct pointee type ID from original module
+        for (uint64_t i = 5; i < fn_at;) {
+            uint32_t op = w[i] & 0xffff, l = w[i] >> 16;
+            if (op == SPV_OP_VARIABLE && w[i + 2] == outs[k].var) { pt = ptr_out[w[i + 1]]; break; }
+            i += l;
+        }
+        if (outs[k].cnt == 4) {
+            uint8_t sk = sc_kind[outs[k].elem_t];
+            if (!zero_id[sk]) {
+                zero_id[sk] = bound++;
+                one_id[sk] = bound++;
+                consts[nc++] = 4u << 16 | SPV_OP_CONSTANT; consts[nc++] = outs[k].elem_t; consts[nc++] = zero_id[sk]; consts[nc++] = 0;
+                consts[nc++] = 4u << 16 | SPV_OP_CONSTANT; consts[nc++] = outs[k].elem_t; consts[nc++] = one_id[sk];  consts[nc++] = 0x3f800000u;
+            }
+            init_id[k] = bound++;
+            consts[nc++] = 7u << 16 | SPV_OP_CONSTANT_COMPOSITE;
+            consts[nc++] = pt; consts[nc++] = init_id[k];
+            consts[nc++] = zero_id[sk]; consts[nc++] = zero_id[sk]; consts[nc++] = zero_id[sk]; consts[nc++] = one_id[sk];
+        } else {
+            init_id[k] = bound++;
+            consts[nc++] = 3u << 16 | SPV_OP_CONSTANT_NULL;
+            consts[nc++] = pt; consts[nc++] = init_id[k];
+        }
+    }
+
+    uint64_t total = n + (uint64_t)nc + (uint64_t)n_outs * 3;
+    uint32_t *o = malloc(total * 4);
+    if (!o) { free(consts); goto fail; }
+    uint64_t on = 0;
+    memcpy(o, w, fn_at * 4);
+    o[3] = bound;
+    on = fn_at;
+    memcpy(o + on, consts, (size_t)nc * 4);
+    on += (uint64_t)nc;
+    memcpy(o + on, w + fn_at, (ins_at - fn_at) * 4);
+    on += ins_at - fn_at;
+    for (int k = 0; k < n_outs; k++) {
+        o[on++] = 3u << 16 | OP_STORE;
+        o[on++] = outs[k].var;
+        o[on++] = init_id[k];
+    }
+    memcpy(o + on, w + ins_at, (n - ins_at) * 4);
+    on += n - ins_at;
+    free(consts);
+    free(has_loc); free(sc_kind); free(vec_comp); free(vec_cnt); free(ptr_out);
+    *out_n = on;
+    return o;
+
+fail:
+    free(has_loc); free(sc_kind); free(vec_comp); free(vec_cnt); free(ptr_out);
+    return NULL;
+}
+
 static VkShaderModule make_module(const uint32_t *w, uint64_t words) {
-    uint64_t fixed_n = 0, gs_n = 0, vpm_n = 0, layer_n = 0, nan_n = 0;
+    uint64_t fixed_n = 0, init_n = 0, gs_n = 0, vpm_n = 0, layer_n = 0, nan_n = 0;
     uint32_t *fixed = spirv_fixup(w, words, &fixed_n);
     if (fixed) w = fixed, words = fixed_n;
+    uint32_t *init = rt_knob("VS_INIT_OUTS", "1") ? spirv_init_outputs(w, words, &init_n) : NULL;
+    if (init) free(fixed), fixed = init, w = init, words = init_n;
     uint32_t *gs = !vk_ctx()->has_gs_passthrough ? lower_gs_passthrough(w, words, &gs_n) : NULL;
     if (gs) free(fixed), fixed = gs, w = gs, words = gs_n;
     uint32_t *vpm = (!vk_ctx()->has_viewport_array2 && vk_ctx()->use_multi_viewport_shadows)
