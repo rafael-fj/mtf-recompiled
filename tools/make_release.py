@@ -233,9 +233,12 @@ def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None
             else:
                 extra = ["-std=c++17"]
             tasks.append(([cxx, *common, *extra, "-c", str(src), "-o", str(obj)], obj, True, rel))
+        elif rel == "runtime/game_host.c":
+            split_obj = (obj_root / "runtime" / "game_host_split.obj")
+            tasks.append(([cc, *common, "-std=gnu17", "-c", str(src), "-o", str(obj)], obj, "ar", rel))
+            tasks.append(([cc, *common, "-DMTF_RUNTIME_SPLIT", "-std=gnu17", "-c", str(src), "-o", str(split_obj)], split_obj, "split", rel))
         else:
-            extra_c = ["-DMTF_RUNTIME_SPLIT"] if rel == "runtime/game_host.c" else []
-            tasks.append(([cc, *common, *extra_c, "-std=gnu17", "-c", str(src), "-o", str(obj)], obj, True, rel))
+            tasks.append(([cc, *common, "-std=gnu17", "-c", str(src), "-o", str(obj)], obj, True, rel))
 
     def _run(cmd_obj: tuple[list[str], Path, bool, str]) -> tuple[Path, bool, str]:
         cmd, obj, is_ar, rel = cmd_obj
@@ -243,8 +246,12 @@ def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None
         return obj, is_ar, rel
 
     with concurrent.futures.ThreadPoolExecutor() as pool:
-        for obj, is_ar, rel in pool.map(_run, tasks):
-            if is_ar:
+        for obj, kind, rel in pool.map(_run, tasks):
+            if kind == "split":
+                split_objs.append(str(obj))
+            elif kind == "ar":
+                ar_objs.append(str(obj))
+            elif kind:
                 split_objs.append(str(obj))
                 if rel not in ("runtime/loader.c", "runtime/memory.c"):
                     ar_objs.append(str(obj))
