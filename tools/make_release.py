@@ -183,6 +183,12 @@ def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None
         line = raw.split("#", 1)[0].strip()
         if line:
             sources.append(line)
+    m_win = re.search(r"if\(WIN32\)\s+list\(APPEND MTF_RUNTIME_SOURCES\s+(.*?)\r?\n\s*\)", cmake_text, re.S)
+    if m_win:
+        for raw in m_win.group(1).splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if line:
+                sources.append(line)
 
     obj_root = ROOT / "build" / "rt-objs"
     if obj_root.exists():
