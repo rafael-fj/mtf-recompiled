@@ -22,8 +22,9 @@ static int g_sock = -1;
 static int g_tried = 0;
 static int g_connected = 0;
 static int g_casual = 0;
+static int g_save_hydrated = 0;
 static int g_save_loaded = 0;
-static uint64_t g_load_tick = 0;
+static uint64_t g_settle_until = 0;
 static uint8_t g_prev_bits[MTF_UNLOCK_BITFIELD_SIZE];
 static uint32_t g_sent_mask = 0;
 
@@ -163,6 +164,12 @@ static int bitfield_ready(void) {
     return plat_mem_readable(MTF_UNLOCK_BITFIELD_VA, MTF_UNLOCK_BITFIELD_SIZE);
 }
 
+static int has_any_bit(const uint8_t *mem) {
+    for (size_t i = 0; i < MTF_UNLOCK_BITFIELD_SIZE; i++)
+        if (mem[i]) return 1;
+    return 0;
+}
+
 void achievements_tick(void) {
     pipe_connect_once();
     if (fs_save_profile_is_tainted(NULL) || any_cheat_cfg_on()) {
@@ -174,21 +181,23 @@ void achievements_tick(void) {
     static uint64_t g_tick = 0;
     const uint8_t *mem = (const uint8_t *)(uintptr_t)MTF_UNLOCK_BITFIELD_VA;
     uint64_t tick = ++g_tick;
+    if (!g_save_hydrated) {
+        if (!has_any_bit(mem)) return;
+        g_save_hydrated = 1;
+        g_settle_until = tick + 60;
+        memcpy(g_prev_bits, mem, MTF_UNLOCK_BITFIELD_SIZE);
+        return;
+    }
+
     if (!g_save_loaded) {
         memcpy(g_prev_bits, mem, MTF_UNLOCK_BITFIELD_SIZE);
+        if (tick < g_settle_until) return;
         g_save_loaded = 1;
-        g_load_tick = tick;
         if (g_connected) {
             char msg[128];
             snprintf(msg, sizeof msg, "{\"t\":\"save_loaded\",\"frame\":%llu}\n", (unsigned long long)tick);
             pipe_write(msg);
         }
-        return;
-    }
-
-    // Wait at least 60 ticks after save_loaded so initial save hydration never triggers events.
-    if (tick < g_load_tick + 60) {
-        memcpy(g_prev_bits, mem, MTF_UNLOCK_BITFIELD_SIZE);
         return;
     }
 
