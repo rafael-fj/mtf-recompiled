@@ -373,7 +373,7 @@ def _runtime_sources_from_cmake(cmake_file):
     return out
 
 
-def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def):
+def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=False):
     """Emit build.ninja directly without requiring CMake."""
     tree.mkdir(parents=True, exist_ok=True)
     out.mkdir(parents=True, exist_ok=True)
@@ -508,6 +508,7 @@ def build(ctx, step, modules, out, portable):
         glue_args += ['--exefs', exefs(ctx), '--romfs', romfs(ctx), '--user', ctx.temp / 'profile']
     run_tool(ctx, step, glue_args, 'glue', phase='glue')
     tree = ctx.temp / ('cmake-portable' if portable else 'cmake')
+    split_rt = False
     if lay.cmake is not None and lay.cmake.is_file():
         toolchain = lay.root / 'tools' / 'cmake' / 'llvm-mingw.cmake'
         run_tool(ctx, step, [lay.cmake, '-S', lay.root, '-B', tree, '-G', 'Ninja',
@@ -522,7 +523,8 @@ def build(ctx, step, modules, out, portable):
         lvl = cpu_level()
         march = '-march=x86-64-v2' if lvl == 'v2' else '-march=x86-64-v3'
         cpu_def = 'RT_CPU_LEVEL=2' if lvl == 'v2' else 'RT_CPU_LEVEL=3'
-        _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def)
+        target_bin = _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=portable)
+        split_rt = (target_bin.name == 'mtf-game.dll')
         run_tool(ctx, step, [lay.ninja, '-C', tree, '-j', ctx.options.jobs], 'ninja-build', phase='compile',
                  progress=(NINJA_LINE, 'objects'))
         for dll in (lay.deps / 'bin').glob('*.dll'):
