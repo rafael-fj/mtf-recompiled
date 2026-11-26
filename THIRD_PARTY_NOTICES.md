@@ -32,6 +32,7 @@ Files that contain adapted code say so in their first lines.
 | DKB Recomp parallel pass replay (`MTF_REPLAY_THREADS`) | Adapted from `dkb-pc-recomp` @ `4e7f9b2` (`runtime/vk_exec.c`, `vk_exec_draw.c`, `vk_exec_xfer.c`, `vk_usnap.c`, `vk_rec.c`, `vk_memory.c`) | MIT | `runtime/vk_exec.{h,c}`, `runtime/vk_exec_draw.c`, `runtime/vk_exec_xfer.c`, `runtime/vk_usnap.c`, `runtime/vk_rec.{h,c}`, `runtime/vk_memory.c` |
 | DKB Recomp fragment NaN guard (`MTF_NAN_GUARD`) | Adapted from `dkb-pc-recomp` @ `4e7f9b2` (`runtime/spirv_nan_guard.{c,h}`, `gfx_spirv.c`) | MIT | `runtime/spirv_nan_guard.{c,h}`, `runtime/vk_pipeline.c`, `runtime/cfg.c` |
 | DKB Recomp input remapping & Controls UI (`binds_page`, `input_map`) | Adapted from `dkb-pc-recomp` @ `4e7f9b2` (`runtime/input_map.{c,h}`, `runtime/ui/binds_page.{cpp,h}`, `runtime/ui/option_rows.cpp`) | MIT | `runtime/input_map.{c,h}`, `runtime/input.{c,h}`, `runtime/ui/binds_page.{cpp,h}`, `runtime/ui/{menu,option_rows}.cpp` |
+| DKB Recomp Linux platform & SDL3 window/menu layer (`linux.c`, `gfx_window_sdl.c`, `menu_sdl.cpp`, `input_sdl.h`) | Adapted from `dkb-pc-recomp` (`runtime/platform/linux.c`, `runtime/gfx_window_sdl.c`, `runtime/ui/menu_sdl.cpp`, `runtime/input_sdl.h`) | MIT | `runtime/platform/linux.c`, `runtime/gfx_window_sdl.c`, `runtime/ui/menu_sdl.cpp`, `runtime/input_sdl.h` |
 
 Design ideas taken without code: Savage Wind Recomp (https://github.com/Revivedx/SavageWindRecomp), for the recorder
 thread and the depth twins of `vk_exec_draw.c`.

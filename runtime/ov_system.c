@@ -913,17 +913,45 @@ static const uint8_t *font_data(Cpu *c, const char *fn, int64_t t) {
             // the font as it is), which the SDK's font engine takes without decoding.
             // The game's own text uses the fonts in its RomFS; system names and button icons use these.
             const char *ttf = cfg_get("MTF_SHARED_FONT_TTF");
-            if (!ttf || !*ttf) ttf = "C:/Windows/Fonts/arial.ttf";
             uint64_t n = 0;
-            uint8_t *font = plat_file_read(ttf, &n);
-            if (!font || n < 12 || n > (64 << 20))
+            uint8_t *font = NULL;
+            if (ttf && *ttf) {
+                font = plat_file_read(ttf, &n);
+            } else {
+#ifdef _WIN32
+                ttf = "C:/Windows/Fonts/arial.ttf";
+                font = plat_file_read(ttf, &n);
+#else
+                static const char *const linux_fonts[] = {
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                    "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+                };
+                for (size_t i = 0; i < sizeof linux_fonts / sizeof linux_fonts[0] && !font; i++) {
+                    ttf = linux_fonts[i];
+                    font = plat_file_read(ttf, &n);
+                }
+#endif
+            }
+            const uint8_t *src = font;
+            if (!src || n < 12 || n > (64 << 20)) {
+                free(font);
+                font = NULL;
+                extern const unsigned char *menu_roboto_ttf(void);
+                extern int menu_roboto_ttf_size(void);
+                src = menu_roboto_ttf();
+                n = (uint64_t)menu_roboto_ttf_size();
+                ttf = "<embedded Roboto-Medium.ttf>";
+            }
+            if (!src || n < 12 || n > (64 << 20))
                 rt_fatal("nn::pl::%s(%lld) from %s: no shared font %s and no stand-in TTF %s (set MTF_SHARED_FONTS to "
                          "the firmware fonts or MTF_SHARED_FONT_TTF to a TrueType font)", fn, (long long)t,
-                         caller(c, lr, sizeof lr), path, ttf);
+                         caller(c, lr, sizeof lr), path, ttf ? ttf : "(null)");
             uint8_t *p = mem_kernel_alloc(n + 8, 16);
             uint32_t words[2] = {__builtin_bswap32(BFTTF_MAGIC), __builtin_bswap32((uint32_t)n)};
             memcpy(p, words, 8);
-            memcpy(p + 8, font, n);
+            memcpy(p + 8, src, n);
             free(font);
             fonts.size[t] = n;
             __atomic_store_n(&fonts.file[t], p, __ATOMIC_RELEASE);

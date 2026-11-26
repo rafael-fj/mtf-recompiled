@@ -393,10 +393,21 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def):
     rt_defs = f'-D{cpu_def} -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -DNDEBUG'
     rt_common = f'-O2 -g -Wall -fno-strict-aliasing {march} {rt_defs} {fmap} {rt_inc}'
 
-    prebuilt_rt = (lay.deps / 'lib' / 'libmtfrt.a').is_file()
-    link_driver = '$cc' if prebuilt_rt else '$cxx'
+    split_rt = portable and (lay.deps / 'lib' / 'libmtf-recomp.dll.a').is_file() and (lay.deps / 'bin' / 'mtf-recomp.exe').is_file()
+    prebuilt_rt = (not split_rt) and (lay.deps / 'lib' / 'libmtfrt.a').is_file()
+    link_driver = '$cc' if (split_rt or prebuilt_rt) else '$cxx'
     rt_libs = '-Wl,--whole-archive -lmtfrt -Wl,--no-whole-archive -lc++ ' if prebuilt_rt else ''
     rsp_file = tree / 'objects.rsp'
+
+    if split_rt:
+        link_cmd = (f'$cc --target=x86_64-w64-windows-gnu -shared -O2 -g {march} -fuse-ld=lld -Wl,--error-limit=0 '
+                    f'@"{rsp_file.as_posix()}" -L"{(lay.deps / "lib").as_posix()}" -lmtf-recomp -o $out')
+    else:
+        link_cmd = (f'{link_driver} --target=x86_64-w64-windows-gnu -O2 -g {march} -fuse-ld=lld -Wl,--stack,16777216 '
+                    f'-Wl,--error-limit=0 @"{rsp_file.as_posix()}" -L"{(lay.deps / "lib").as_posix()}" {rt_libs}'
+                    f'-lvulkan-1 -lSDL3 -lopus -lvpx -ldatachannel -ljuice -lsrtp2 -lusrsctp -lmbedtls -lmbedx509 '
+                    f'-lmbedcrypto -leverest -lp256m -liphlpapi -lpsapi -lbcrypt -luser32 -lgdi32 -ldwmapi -limm32 '
+                    f'-lwinmm -lole32 -loleaut32 -lmfplat -lmfuuid -lshell32 -luuid -lpdh -lrstrtmgr -lws2_32 -lwinhttp -o $out')
 
     lines = [
         'ninja_required_version = 1.5',
@@ -418,7 +429,7 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def):
         'rule rc_rt',
         f'  command = $rc --target=pe-x86-64 -O coff -i $in -o $out',
         'rule link',
-        f'  command = {link_driver} --target=x86_64-w64-windows-gnu -O2 -g {march} -fuse-ld=lld -Wl,--stack,16777216 -Wl,--error-limit=0 @"{rsp_file.as_posix()}" -L"{(lay.deps / "lib").as_posix()}" {rt_libs}-lvulkan-1 -lSDL3 -lopus -lvpx -ldatachannel -ljuice -lsrtp2 -lusrsctp -lmbedtls -lmbedx509 -lmbedcrypto -leverest -lp256m -liphlpapi -lpsapi -lbcrypt -luser32 -lgdi32 -ldwmapi -limm32 -lwinmm -lole32 -loleaut32 -lmfplat -lmfuuid -lshell32 -luuid -lpdh -lrstrtmgr -lws2_32 -lwinhttp -o $out',
+        f'  command = {link_cmd}',
         '',
     ]
 
@@ -432,7 +443,9 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def):
             lines.append(f'build {esc(obj.as_posix())}: cc_gen {esc(src.as_posix())}')
             objs.append(obj)
 
-    if prebuilt_rt:
+    if split_rt:
+        pass
+    elif prebuilt_rt:
         rc_obj = lay.deps / 'lib' / 'mtf.rc.obj'
         if rc_obj.is_file():
             objs.append(rc_obj)
@@ -471,15 +484,15 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def):
     glue_obj = obj_dir / 'glue' / 'modules.obj'
     glue_obj.parent.mkdir(parents=True, exist_ok=True)
     lines.append(f'build {esc(glue_obj.as_posix())}: cc_rt {esc(glue_c.as_posix())}')
-    lines.append('  extra = ')
+    lines.append('  extra = -DMTF_GAME_DLL' if split_rt else '  extra = ')
     objs.append(glue_obj)
 
-    exe = out / EXE
+    target_bin = out / ('mtf-game.dll' if split_rt else EXE)
     rsp_file.write_text('\n'.join(f'"{o.as_posix()}"' for o in objs) + '\n', encoding='utf-8')
-    lines.append(f'build {esc(exe.as_posix())}: link ' + ' '.join(esc(o.as_posix()) for o in objs))
-    lines.append(f'default {esc(exe.as_posix())}')
+    lines.append(f'build {esc(target_bin.as_posix())}: link ' + ' '.join(esc(o.as_posix()) for o in objs))
+    lines.append(f'default {esc(target_bin.as_posix())}')
     (tree / 'build.ninja').write_text('\n'.join(lines) + '\n', encoding='utf-8')
-    return exe
+    return target_bin
 
 
 def build(ctx, step, modules, out, portable):
@@ -519,6 +532,8 @@ def build(ctx, step, modules, out, portable):
             src_dll = rt_bin / name
             if src_dll.is_file():
                 shutil.copy2(src_dll, out / name)
+    if split_rt:
+        shutil.copy2(lay.deps / 'bin' / EXE, out / EXE)
     exe = out / EXE
     if not exe.is_file():
         raise InstallError('build.no_exe', path=str(exe))
@@ -643,6 +658,10 @@ class Build(Step):
         for f in out.iterdir():
             if f.suffix.lower() in ('.exe', '.dll') and f.name != DLSS_DLL:
                 shutil.copy2(f, ctx.dest / f.name)
+        for cand in (ctx.layout.root / 'mtf-updater.exe', ctx.layout.deps / 'bin' / 'mtf-updater.exe'):
+            if cand.is_file():
+                shutil.copy2(cand, ctx.dest / 'mtf-updater.exe')
+                break
 
 
 # ---- 9. NVIDIA DLSS --------------------------------------------------------------------------------------------------

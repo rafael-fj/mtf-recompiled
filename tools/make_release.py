@@ -141,6 +141,37 @@ def make_windows_zip(version: str, out_dir: Path, setup_path: Path, bundle_dir: 
     return win_zip
 
 
+def make_runtime_zip(version: str, out_dir: Path, bundle_dir: Path | None = None) -> Path | None:
+    """Package MTF-Runtime-v<version>-Windows-x64.zip for fast runtime-only updates (~10 MB)."""
+    if bundle_dir is None:
+        return None
+    rt_exe = bundle_dir / "deps" / "bin" / "mtf-recomp.exe"
+    upd_exe = bundle_dir / "deps" / "bin" / "mtf-updater.exe"
+    if not rt_exe.is_file():
+        return None
+    rt_zip = out_dir / f"MTF-Runtime-v{version}-Windows-x64.zip"
+    top = Path(f"MTF-Runtime-v{version}-Windows-x64")
+    if rt_zip.exists():
+        rt_zip.unlink()
+    manifest = f'{{\n  "version": "{version}",\n  "game_abi": 1,\n  "runtime_only": true\n}}\n'
+    with zipfile.ZipFile(rt_zip, "w", compression=zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
+        zf.writestr(str(top / "mtf-runtime-manifest.json"), manifest)
+        zf.write(rt_exe, top / "mtf-recomp.exe")
+        if upd_exe.is_file():
+            zf.write(upd_exe, top / "mtf-updater.exe")
+        for dll in sorted((bundle_dir / "deps" / "bin").glob("*.dll")):
+            zf.write(dll, top / dll.name)
+        for name in ("libc++.dll", "libunwind.dll", "libwinpthread-1.dll"):
+            p = bundle_dir / "llvm" / "x86_64-w64-mingw32" / "bin" / name
+            if p.is_file():
+                zf.write(p, top / name)
+        for rel in ("LICENSE", "THIRD_PARTY_NOTICES.md", "VERSION"):
+            src = ROOT / rel
+            if src.is_file():
+                zf.write(src, top / rel)
+    return rt_zip
+
+
 def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None:
     """Pre-compile runtime C/C++ sources (except loader.c/memory.c which include layout.h) into libmtfrt.a + mtf.rc.obj."""
     cmake_text = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
@@ -150,7 +181,7 @@ def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None
     sources = []
     for raw in m.group(1).splitlines():
         line = raw.split("#", 1)[0].strip()
-        if line and line not in ("runtime/loader.c", "runtime/memory.c"):
+        if line:
             sources.append(line)
 
     obj_root = ROOT / "build" / "rt-objs"
@@ -163,9 +194,11 @@ def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None
     cxx = str(llvm_dir / "bin" / "clang++.exe")
     rc = str(llvm_dir / "bin" / "llvm-windres.exe")
     ar = str(llvm_dir / "bin" / "llvm-ar.exe")
+    port_ver = (ROOT / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / "VERSION").is_file() else "0.1.0"
     common = [
         "--target=x86_64-w64-windows-gnu", "-O2", "-g", "-Wall", "-fno-strict-aliasing",
         "-march=x86-64-v2", "-D_WIN32_WINNT=0x0A00", "-DWINVER=0x0A00", "-DNDEBUG",
+        f'-DMTF_PORT_VERSION="{port_ver}"',
         f"-ffile-prefix-map={ROOT.as_posix()}=.",
         f"-I{(ROOT / 'runtime').as_posix()}",
         f"-I{(ROOT / 'runtime' / 'third_party' / 'imgui').as_posix()}",
@@ -174,14 +207,16 @@ def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None
     ]
 
     ar_objs: list[str] = []
-    tasks: list[tuple[list[str], Path, bool]] = []
+    split_objs: list[str] = []
+    rc_obj_path = out_lib_dir / "mtf.rc.obj"
+    tasks: list[tuple[list[str], Path, bool, str]] = []
     for rel in sources:
         src = ROOT / rel
         obj = (obj_root / rel).with_suffix(".obj")
         obj.parent.mkdir(parents=True, exist_ok=True)
         ext = src.suffix.lower()
         if ext == ".rc":
-            tasks.append(([rc, "--target=pe-x86-64", "-O", "coff", "-i", str(src), "-o", str(out_lib_dir / "mtf.rc.obj")], obj, False))
+            tasks.append(([rc, "--target=pe-x86-64", "-O", "coff", "-i", str(src), "-o", str(rc_obj_path)], obj, False, rel))
         elif ext == ".cpp":
             if rel == "runtime/vk_vma.cpp":
                 extra = ["-std=c++17", "-Wno-nullability-completeness"]
@@ -191,26 +226,53 @@ def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None
                 extra = ["-std=c++17", "-w"]
             else:
                 extra = ["-std=c++17"]
-            tasks.append(([cxx, *common, *extra, "-c", str(src), "-o", str(obj)], obj, True))
+            tasks.append(([cxx, *common, *extra, "-c", str(src), "-o", str(obj)], obj, True, rel))
         else:
-            tasks.append(([cc, *common, "-std=gnu17", "-c", str(src), "-o", str(obj)], obj, True))
+            extra_c = ["-DMTF_RUNTIME_SPLIT"] if rel == "runtime/game_host.c" else []
+            tasks.append(([cc, *common, *extra_c, "-std=gnu17", "-c", str(src), "-o", str(obj)], obj, True, rel))
 
-    def _run(cmd_obj: tuple[list[str], Path, bool]) -> tuple[Path, bool]:
-        cmd, obj, is_ar = cmd_obj
+    def _run(cmd_obj: tuple[list[str], Path, bool, str]) -> tuple[Path, bool, str]:
+        cmd, obj, is_ar, rel = cmd_obj
         subprocess.check_call(cmd)
-        return obj, is_ar
+        return obj, is_ar, rel
 
     with concurrent.futures.ThreadPoolExecutor() as pool:
-        for obj, is_ar in pool.map(_run, tasks):
+        for obj, is_ar, rel in pool.map(_run, tasks):
             if is_ar:
-                ar_objs.append(str(obj))
+                split_objs.append(str(obj))
+                if rel not in ("runtime/loader.c", "runtime/memory.c"):
+                    ar_objs.append(str(obj))
 
     lib_path = out_lib_dir / "libmtfrt.a"
     if lib_path.exists():
         lib_path.unlink()
     subprocess.check_call([ar, "rcs", str(lib_path), *ar_objs])
-    shutil.rmtree(obj_root, ignore_errors=True)
     print(f"Built {lib_path} ({lib_path.stat().st_size / (1024 * 1024):.2f} MiB)")
+
+    rt_exe = out_lib_dir.parent / "bin" / "mtf-recomp.exe"
+    rt_implib = out_lib_dir / "libmtf-recomp.dll.a"
+    rt_exe.parent.mkdir(parents=True, exist_ok=True)
+    rt_rsp = obj_root / "rt_split.rsp"
+    rt_rsp.write_text("\n".join(f'"{Path(o).as_posix()}"' for o in [*split_objs, str(rc_obj_path)]) + "\n", encoding="utf-8")
+    subprocess.check_call([
+        cxx, "--target=x86_64-w64-windows-gnu", "-O2", "-g", "-march=x86-64-v2",
+        "-fuse-ld=lld", "-Wl,--stack,16777216", "-Wl,--error-limit=0",
+        f"-Wl,--export-all-symbols,--out-implib,{rt_implib.as_posix()}",
+        f"@{rt_rsp.as_posix()}", f"-L{out_lib_dir.as_posix()}",
+        "-lvulkan-1", "-lSDL3", "-lopus", "-lvpx", "-ldatachannel", "-ljuice", "-lsrtp2",
+        "-lusrsctp", "-lmbedtls", "-lmbedx509", "-lmbedcrypto", "-leverest", "-lp256m",
+        "-liphlpapi", "-lpsapi", "-lbcrypt", "-luser32", "-lgdi32", "-ldwmapi", "-limm32",
+        "-lwinmm", "-lole32", "-loleaut32", "-lmfplat", "-lmfuuid", "-lshell32", "-luuid",
+        "-lpdh", "-lrstrtmgr", "-lws2_32", "-lwinhttp", "-o", str(rt_exe),
+    ])
+    print(f"Built split runtime {rt_exe} ({rt_exe.stat().st_size / (1024 * 1024):.2f} MiB)")
+    shutil.rmtree(obj_root, ignore_errors=True)
+
+    updater_bin = out_lib_dir.parent / "bin" / "mtf-updater.exe"
+    updater_bin.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.check_call([cc, "--target=x86_64-w64-windows-gnu", "-O2", "-Wall", "-mwindows", "-fuse-ld=lld",
+                           str(ROOT / "tools" / "mtf_updater.c"), "-lcomctl32", "-o", str(updater_bin)])
+    print(f"Built {updater_bin}")
 
 
 def main() -> int:
@@ -235,6 +297,10 @@ def main() -> int:
         win_zip = make_windows_zip(args.version, args.out, setup_path, args.bundle_dir)
         win_mb = win_zip.stat().st_size / (1024 * 1024)
         print(f"Created RecompLauncher Windows archive: {win_zip} ({win_mb:.2f} MiB)")
+        rt_zip = make_runtime_zip(args.version, args.out, args.bundle_dir)
+        if rt_zip is not None:
+            rt_mb = rt_zip.stat().st_size / (1024 * 1024)
+            print(f"Created Fast Runtime Update archive: {rt_zip} ({rt_mb:.2f} MiB)")
     return 0
 
 

@@ -4,10 +4,14 @@
 // asks sm: for the service and the runtime stops with a named fatal (ipc.c).
 //
 // The answers: every network feature unavailable, every applet logged, no guests.
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
 #include <bcrypt.h>
+#else
+#include <sys/random.h>
+#endif
 #include <string.h>
 
 #include "cfg.h"
@@ -473,8 +477,19 @@ HOST_OVERRIDE("_ZN2nn2vi31QueryDisplayBufferMaxResolutionEPNS0_19BufferMaxResolu
 // ---- system: random bytes from the host, shared font loads (the fonts are read on first use, ov_system.c), and
 // MountRom without its cache arguments
 static void random_bytes(Cpu *c) {
+#ifdef _WIN32
     if (BCryptGenRandom(NULL, arg_p(c, 0), (ULONG)arg_x(c, 1), BCRYPT_USE_SYSTEM_PREFERRED_RNG))
         rt_fatal("crypto: BCryptGenRandom failed");
+#else
+    uint8_t *dst = (uint8_t *)arg_p(c, 0);
+    size_t rem = (size_t)arg_x(c, 1);
+    while (rem > 0) {
+        ssize_t n = getrandom(dst, rem, 0);
+        if (n <= 0) rt_fatal("crypto: getrandom failed");
+        dst += n;
+        rem -= (size_t)n;
+    }
+#endif
 }
 static void mount_rom_1(Cpu *c) {
     GuestFn fn = hostfn_override("_ZN2nn2fs8MountRomEPKcPvm");

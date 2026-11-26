@@ -800,8 +800,12 @@ void vk_dump_draw(VkExec *ex, const VkPipeState *s, VkPipeline p, const VkPipeIn
         goto out;
     }
     Str b = {0};
-    sp(&b, "vs %016llx fs %016llx prog %llu prim %d\n", (unsigned long long)shader_hash(s->vs),
-       (unsigned long long)shader_hash(s->fs), (unsigned long long)(ex->prog ? ex->prog->serial : 0), s->prim);
+    sp(&b, "vs %016llx fs %016llx prog %llu prim %d cull %u/%u ds %u/%u/%u/st%u blend0 %u(%u/%u) mask %#x a2c %u poly %u fbl %u\n",
+       (unsigned long long)shader_hash(s->vs),
+       (unsigned long long)shader_hash(s->fs), (unsigned long long)(ex->prog ? ex->prog->serial : 0), s->prim,
+       (unsigned)s->poly.cull, (unsigned)s->poly.front, (unsigned)s->ds.dt, (unsigned)s->ds.dw, (unsigned)s->ds.df, (unsigned)s->ds.st,
+       (unsigned)(s->color.blend_en & 1), (unsigned)s->blend[0].src_rgb, (unsigned)s->blend[0].dst_rgb,
+       (unsigned)(s->chmask.mask & 0xf), (unsigned)s->ms.a2c, (unsigned)s->poly.mode, (unsigned)s->feedback);
     describe_bindings(&b, ex, info);
     ents[nents++] = (Ent){p, th, 1, b.s};
 out:

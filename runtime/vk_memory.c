@@ -117,6 +117,7 @@ static int memory_type(const VkCtx *c, uint32_t bits, VkMemoryPropertyFlags want
 
 // CPU-visible storage: the guest pages themselves become the buffer's memory (VK_EXT_external_memory_host).
 static int import_pool(VkCtx *c, PoolRec *r, uint64_t addr, uint64_t size) {
+    if (!c->min_imported_host_alignment) shadow_on = 1;
     if (shadow_on) return shadow_pool(c, r, addr, size);
     mem_touch(addr, size);   // driver pins host pages: reserved lazy-heap pages would fail
     if (!p_host_props)

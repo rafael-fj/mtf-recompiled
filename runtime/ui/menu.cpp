@@ -51,13 +51,31 @@ extern const char rt_port_version[];
 }
 
 // Roboto Medium (Apache-2.0, ui/fonts/LICENSE-Roboto.txt): Latin-1 covers the menu in English and Portuguese.
+#if defined(__clang__) && __clang_major__ >= 19
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc23-extensions"   // #embed in C++
 static const unsigned char roboto_ttf[] = {
 #embed "fonts/Roboto-Medium.ttf"
 };
 extern "C" const unsigned char *menu_roboto_ttf(void) { return roboto_ttf; }
+extern "C" int menu_roboto_ttf_size(void) { return (int)sizeof roboto_ttf; }
 #pragma clang diagnostic pop
+#else
+__asm__(
+    ".section .rodata\n"
+    ".globl menu_roboto_ttf_data\n"
+    ".globl menu_roboto_ttf_end\n"
+    ".balign 16\n"
+    "menu_roboto_ttf_data:\n"
+    ".incbin \"fonts/Roboto-Medium.ttf\"\n"
+    "menu_roboto_ttf_end:\n"
+    ".previous\n"
+);
+extern "C" const unsigned char menu_roboto_ttf_data[];
+extern "C" const unsigned char menu_roboto_ttf_end[];
+extern "C" const unsigned char *menu_roboto_ttf(void) { return menu_roboto_ttf_data; }
+extern "C" int menu_roboto_ttf_size(void) { return (int)(menu_roboto_ttf_end - menu_roboto_ttf_data); }
+#endif
 
 // ---- open state, any thread
 static std::atomic<int> g_open;     // the menu is open
@@ -270,7 +288,7 @@ static int fonts_up(float scale) {
     fa->Clear();
     ImFontConfig fc;
     fc.FontDataOwnedByAtlas = false;
-    fa->AddFontFromMemoryTTF((void *)roboto_ttf, (int)sizeof roboto_ttf, 26.0f * scale, &fc, kRanges);
+    fa->AddFontFromMemoryTTF((void *)menu_roboto_ttf(), menu_roboto_ttf_size(), 26.0f * scale, &fc, kRanges);
     vk_queue_lock();   // the upload submits on the queue and waits for it
     int ok = ImGui_ImplVulkan_CreateFontsTexture();
     vk_queue_unlock();
@@ -1241,11 +1259,30 @@ static void layout_menu(uint32_t w, uint32_t h, float scale) {
 
     UpdateInfo upd{};
     if (update_check_status(&upd)) {
-        char msg[128];
-        snprintf(msg, sizeof msg, menu_text(UI_MENU_UPDATE_REMINDER), upd.tag, rt_port_version);
-        ImGui::TextColored(ImVec4(0.95f, 0.78f, 0.25f, 1.0f), "%s", msg);
-        ImGui::SameLine();
-        if (ImGui::SmallButton(menu_text(UI_MENU_UPDATE_DOWNLOAD))) update_check_open_url();
+        if (upd.state == UPDATE_STATE_DOWNLOADING) {
+            float done_mb = (float)upd.bytes_done / (1024.0f * 1024.0f);
+            float tot_mb = upd.bytes_total ? (float)upd.bytes_total / (1024.0f * 1024.0f) : 0.0f;
+            float frac = upd.bytes_total ? (float)upd.bytes_done / (float)upd.bytes_total : 0.0f;
+            char pmsg[96];
+            snprintf(pmsg, sizeof pmsg, menu_text(UI_MENU_UPDATE_DOWNLOADING), done_mb, tot_mb);
+            ImGui::ProgressBar(frac, ImVec2(280.0f * scale, 0.0f), pmsg);
+        } else if (upd.state == UPDATE_STATE_APPLYING) {
+            ImGui::TextColored(ImVec4(0.95f, 0.78f, 0.25f, 1.0f), "%s", menu_text(UI_MENU_UPDATE_APPLYING));
+        } else if (upd.state == UPDATE_STATE_ERROR) {
+            ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.35f, 1.0f), "%s", upd.error[0] ? upd.error : "Update failed.");
+            ImGui::SameLine();
+            if (ImGui::SmallButton(menu_text(UI_MENU_UPDATE_BROWSER))) update_check_open_url();
+        } else {
+            char msg[128];
+            snprintf(msg, sizeof msg, menu_text(UI_MENU_UPDATE_REMINDER), upd.tag, rt_port_version);
+            ImGui::TextColored(ImVec4(0.95f, 0.78f, 0.25f, 1.0f), "%s", msg);
+            ImGui::SameLine();
+            if (update_check_can_install()) {
+                if (ImGui::SmallButton(menu_text(UI_MENU_UPDATE_NOW))) update_check_start_install();
+            } else {
+                if (ImGui::SmallButton(menu_text(UI_MENU_UPDATE_DOWNLOAD))) update_check_open_url();
+            }
+        }
     }
 
     int step = g_modal || binds_modal()                                                                 ? 0
