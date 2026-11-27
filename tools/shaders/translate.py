@@ -99,8 +99,8 @@ def run_batch(batch: list, src: Path, out: Path, facts: dict, xlate: Path, sbuf_
         work = Path(temp)
         jobs = [job_for(key, stage, src, work, facts, sbuf_align, mvprev) for key, stage in batch]
         (work / "jobs.json").write_text(json.dumps(jobs), encoding="utf-8")
-        # the release ships a self-contained translator (an .exe); a developer's build is a .dll for dotnet
-        host = [str(xlate)] if xlate.suffix.lower() == ".exe" else [str(DOTNET), str(xlate)]
+        # the release ships a self-contained translator (an .exe or wrapper); a developer's build is a .dll for dotnet
+        host = [str(DOTNET), str(xlate)] if xlate.suffix.lower() == ".dll" else [str(xlate)]
         result = subprocess.run([*host, str(work / "jobs.json"), str(work / "out")],
                                 capture_output=True, text=True)
         failed = []

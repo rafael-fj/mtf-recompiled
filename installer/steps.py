@@ -25,9 +25,10 @@ from pathlib import Path
 
 from .runner import InstallError, Step
 
+IS_WIN = os.name == 'nt'
 TITLE = '0400D4201C6EA000'
 UPDATE = '327680'   # 1.1.1
-EXE = 'mtf-recomp.exe'
+EXE = 'mtf-recomp.exe' if IS_WIN else 'mtf-recomp'
 GB = 1000 ** 3
 DEST_NEED = 7 * GB     # the game's files (base and update, while extracting), the shaders and the executable
 TEMP_NEED = 2 * GB     # generated C and objects, while the install runs
@@ -377,8 +378,8 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=Fals
     """Emit build.ninja directly without requiring CMake."""
     tree.mkdir(parents=True, exist_ok=True)
     out.mkdir(parents=True, exist_ok=True)
-    cc = (lay.llvm / 'bin' / 'clang.exe').as_posix()
-    cxx = (lay.llvm / 'bin' / 'clang++.exe').as_posix()
+    cc = (lay.llvm / 'bin' / ('clang.exe' if IS_WIN else 'clang')).as_posix()
+    cxx = (lay.llvm / 'bin' / ('clang++.exe' if IS_WIN else 'clang++')).as_posix()
     rc = (lay.llvm / 'bin' / 'llvm-windres.exe').as_posix()
 
     def esc(s):
@@ -390,24 +391,34 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=Fals
     )
     gen_flags = f'-O2 -fwrapv -fno-strict-aliasing -Wno-return-type -Wno-unused-label -fvisibility=hidden {march} -DNDEBUG {fmap} -I"{(lay.root / "runtime").as_posix()}"'
     rt_inc = f'-I"{(lay.root / "runtime").as_posix()}" -I"{(lay.root / "runtime" / "third_party" / "imgui").as_posix()}" -I"{glue.as_posix()}" -isystem "{(lay.deps / "include").as_posix()}" -isystem "{(lay.deps / "include" / "vma").as_posix()}"'
-    rt_defs = f'-D{cpu_def} -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -DNDEBUG'
+    if IS_WIN:
+        rt_defs = f'-D{cpu_def} -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -DNDEBUG'
+        target_flag = '--target=x86_64-w64-windows-gnu '
+    else:
+        rt_defs = f'-D{cpu_def} -D_GNU_SOURCE -DNDEBUG'
+        target_flag = ''
     rt_common = f'-O2 -g -Wall -fno-strict-aliasing {march} {rt_defs} {fmap} {rt_inc}'
 
-    split_rt = portable and (lay.deps / 'lib' / 'libmtf-recomp.dll.a').is_file() and (lay.deps / 'bin' / 'mtf-recomp.exe').is_file()
+    split_rt = IS_WIN and portable and (lay.deps / 'lib' / 'libmtf-recomp.dll.a').is_file() and (lay.deps / 'bin' / 'mtf-recomp.exe').is_file()
     prebuilt_rt = (not split_rt) and (lay.deps / 'lib' / 'libmtfrt.a').is_file()
     link_driver = '$cc' if (split_rt or prebuilt_rt) else '$cxx'
-    rt_libs = '-Wl,--whole-archive -lmtfrt -Wl,--no-whole-archive -lc++ ' if prebuilt_rt else ''
+    rt_libs = ('-Wl,--whole-archive -lmtfrt -Wl,--no-whole-archive -lc++ ' if IS_WIN
+               else '-Wl,--whole-archive -lmtfrt -Wl,--no-whole-archive -lstdc++ ') if prebuilt_rt else ''
     rsp_file = tree / 'objects.rsp'
 
     if split_rt:
         link_cmd = (f'$cc --target=x86_64-w64-windows-gnu -shared -O2 -g {march} -fuse-ld=lld -Wl,--error-limit=0 '
                     f'@"{rsp_file.as_posix()}" -L"{(lay.deps / "lib").as_posix()}" -lmtf-recomp -o $out')
-    else:
+    elif IS_WIN:
         link_cmd = (f'{link_driver} --target=x86_64-w64-windows-gnu -O2 -g {march} -fuse-ld=lld -Wl,--stack,16777216 '
                     f'-Wl,--error-limit=0 @"{rsp_file.as_posix()}" -L"{(lay.deps / "lib").as_posix()}" {rt_libs}'
                     f'-lvulkan-1 -lSDL3 -lopus -lvpx -ldatachannel -ljuice -lsrtp2 -lusrsctp -lmbedtls -lmbedx509 '
                     f'-lmbedcrypto -leverest -lp256m -liphlpapi -lpsapi -lbcrypt -luser32 -lgdi32 -ldwmapi -limm32 '
                     f'-lwinmm -lole32 -loleaut32 -lmfplat -lmfuuid -lshell32 -luuid -lpdh -lrstrtmgr -lws2_32 -lwinhttp -o $out')
+    else:
+        link_cmd = (f'{link_driver} -O2 -g {march} -Wl,-rpath,\'$$ORIGIN\' '
+                    f'@"{rsp_file.as_posix()}" -L"{(lay.deps / "lib").as_posix()}" {rt_libs}'
+                    f'-lvulkan -lSDL3 -lopus -lvpx -lpthread -ldl -lm -o $out')
 
     lines = [
         'ninja_required_version = 1.5',
@@ -415,15 +426,15 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=Fals
         f'cxx = "{cxx}"',
         f'rc = "{rc}"',
         'rule cc_gen',
-        f'  command = $cc --target=x86_64-w64-windows-gnu {gen_flags} -std=gnu17 -MD -MF $out.d -c $in -o $out',
+        f'  command = $cc {target_flag}{gen_flags} -std=gnu17 -MD -MF $out.d -c $in -o $out',
         '  depfile = $out.d',
         '  deps = gcc',
         'rule cc_rt',
-        f'  command = $cc --target=x86_64-w64-windows-gnu {rt_common} -std=gnu17 $extra -MD -MF $out.d -c $in -o $out',
+        f'  command = $cc {target_flag}{rt_common} -std=gnu17 $extra -MD -MF $out.d -c $in -o $out',
         '  depfile = $out.d',
         '  deps = gcc',
         'rule cxx_rt',
-        f'  command = $cxx --target=x86_64-w64-windows-gnu {rt_common} $extra -MD -MF $out.d -c $in -o $out',
+        f'  command = $cxx {target_flag}{rt_common} $extra -MD -MF $out.d -c $in -o $out',
         '  depfile = $out.d',
         '  deps = gcc',
         'rule rc_rt',
@@ -435,9 +446,10 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=Fals
 
     objs = []
     obj_dir = tree / 'obj'
+    obj_ext = '.obj' if IS_WIN else '.o'
     for d in dirs:
         for src in sorted(d.rglob('*.c')):
-            rel = src.relative_to(d).with_suffix('.obj')
+            rel = src.relative_to(d).with_suffix(obj_ext)
             obj = obj_dir / 'gen' / d.name / rel
             obj.parent.mkdir(parents=True, exist_ok=True)
             lines.append(f'build {esc(obj.as_posix())}: cc_gen {esc(src.as_posix())}')
@@ -446,20 +458,28 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=Fals
     if split_rt:
         pass
     elif prebuilt_rt:
-        rc_obj = lay.deps / 'lib' / 'mtf.rc.obj'
-        if rc_obj.is_file():
-            objs.append(rc_obj)
+        if IS_WIN:
+            rc_obj = lay.deps / 'lib' / 'mtf.rc.obj'
+            if rc_obj.is_file():
+                objs.append(rc_obj)
         for rel_src in ('runtime/loader.c', 'runtime/memory.c'):
             src = lay.root / rel_src
-            obj = (obj_dir / 'rt' / rel_src).with_suffix('.obj')
+            obj = (obj_dir / 'rt' / rel_src).with_suffix(obj_ext)
             obj.parent.mkdir(parents=True, exist_ok=True)
             lines.append(f'build {esc(obj.as_posix())}: cc_rt {esc(src.as_posix())}')
             lines.append('  extra = ')
             objs.append(obj)
     else:
-        for rel_src in _runtime_sources_from_cmake(lay.root / 'CMakeLists.txt'):
+        rt_sources = _runtime_sources_from_cmake(lay.root / 'CMakeLists.txt')
+        if IS_WIN:
+            rt_sources += ['runtime/gfx_window_win.c', 'runtime/platform/win32.c', 'runtime/ui/menu_win.cpp',
+                           'runtime/stream_host.c', 'runtime/stream_webrtc.cpp', 'runtime/stream_hwenc.cpp', 'runtime/mtf.rc']
+        else:
+            rt_sources += ['runtime/gfx_window_sdl.c', 'runtime/platform/linux.c', 'runtime/ui/menu_sdl.cpp',
+                           'runtime/stream_linux_stub.c']
+        for rel_src in rt_sources:
             src = lay.root / rel_src
-            obj = (obj_dir / 'rt' / rel_src).with_suffix('.obj')
+            obj = (obj_dir / 'rt' / rel_src).with_suffix(obj_ext)
             obj.parent.mkdir(parents=True, exist_ok=True)
             ext = src.suffix.lower()
             if ext == '.rc':
@@ -467,7 +487,7 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=Fals
             elif ext == '.cpp':
                 if rel_src == 'runtime/vk_vma.cpp':
                     extra = '-std=c++17 -Wno-nullability-completeness'
-                elif rel_src in ('runtime/ui/menu.cpp', 'runtime/ui/menu_win.cpp', 'runtime/ui/option_rows.cpp'):
+                elif rel_src in ('runtime/ui/menu.cpp', 'runtime/ui/menu_win.cpp', 'runtime/ui/menu_sdl.cpp', 'runtime/ui/option_rows.cpp'):
                     extra = '-std=c++20'
                 elif rel_src.startswith('runtime/third_party/imgui/'):
                     extra = '-std=c++17 -w'
@@ -481,7 +501,7 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=Fals
             objs.append(obj)
 
     glue_c = glue / 'modules.c'
-    glue_obj = obj_dir / 'glue' / 'modules.obj'
+    glue_obj = obj_dir / 'glue' / f'modules{obj_ext}'
     glue_obj.parent.mkdir(parents=True, exist_ok=True)
     lines.append(f'build {esc(glue_obj.as_posix())}: cc_rt {esc(glue_c.as_posix())}')
     lines.append('  extra = -DMTF_GAME_DLL' if split_rt else '  extra = ')
@@ -527,13 +547,17 @@ def build(ctx, step, modules, out, portable):
         split_rt = (target_bin.name == 'mtf-game.dll')
         run_tool(ctx, step, [lay.ninja, '-C', tree, '-j', ctx.options.jobs], 'ninja-build', phase='compile',
                  progress=(NINJA_LINE, 'objects'))
-        for dll in (lay.deps / 'bin').glob('*.dll'):
-            shutil.copy2(dll, out / dll.name)
-        rt_bin = lay.llvm / 'x86_64-w64-mingw32' / 'bin'
-        for name in ('libc++.dll', 'libunwind.dll', 'libwinpthread-1.dll'):
-            src_dll = rt_bin / name
-            if src_dll.is_file():
-                shutil.copy2(src_dll, out / name)
+        if IS_WIN:
+            for dll in (lay.deps / 'bin').glob('*.dll'):
+                shutil.copy2(dll, out / dll.name)
+            rt_bin = lay.llvm / 'x86_64-w64-mingw32' / 'bin'
+            for name in ('libc++.dll', 'libunwind.dll', 'libwinpthread-1.dll'):
+                src_dll = rt_bin / name
+                if src_dll.is_file():
+                    shutil.copy2(src_dll, out / name)
+        else:
+            for so in (lay.deps / 'lib').glob('*.so*'):
+                shutil.copy2(so, out / so.name, follow_symlinks=True)
     if split_rt:
         shutil.copy2(lay.deps / 'bin' / EXE, out / EXE)
     exe = out / EXE

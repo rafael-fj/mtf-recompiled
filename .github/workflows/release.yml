@@ -92,3 +92,94 @@ jobs:
             build/release/MTF-Recomp-v*-Windows-x64.zip
             build/release/MTF-Runtime-v*-Windows-x64.zip
             build/release/mtf-recomp-*-src.zip
+
+  build-linux-experimental:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config curl xz-utils unzip \
+            libvulkan-dev libvpx-dev libopus-dev \
+            libwayland-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxi-dev libxfixes-dev libxkbcommon-dev libgl-dev libdrm-dev libgbm-dev \
+            libasound2-dev libpulse-dev libdbus-1-dev libudev-dev
+
+      - name: Fetch SDL3, VMA, Zig, Python, Ninja, and .NET xlate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          B="$PWD/build/linux-bundle"
+          mkdir -p "$B/bin/xlate/dotnet" "$B/deps/include/vma" "$B/deps/lib" "$B/llvm" "$B/python"
+
+          # 1. Ninja
+          curl -fsSL -o /tmp/ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
+          unzip -q /tmp/ninja.zip -d "$B/bin"
+          chmod +x "$B/bin/ninja"
+
+          # 2. Zig 0.13.0 (self-contained Clang + LLD + glibc 2.31 sysroot)
+          curl -fsSL -o /tmp/zig.tar.xz https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
+          tar -xf /tmp/zig.tar.xz -C "$B/llvm"
+          mv "$B/llvm"/zig-linux-x86_64-* "$B/llvm/zig"
+
+          # 3. Portable Python 3.12 (with tkinter + zstandard + pillow)
+          PY_URL=$(curl -fsSL https://api.github.com/repos/indygreg/python-build-standalone/releases/latest | \
+            python3 -c "import sys,json; rel=json.load(sys.stdin); print(next(a['browser_download_url'] for a in rel['assets'] if 'cpython-3.12.' in a['name'] and 'x86_64-unknown-linux-gnu-install_only_stripped.tar.gz' in a['name']))")
+          curl -fsSL -o /tmp/python.tar.gz "$PY_URL"
+          tar -xzf /tmp/python.tar.gz -C "$B"
+          "$B/python/bin/python3" -m pip install --no-cache-dir zstandard pillow
+
+          # 4. SDL3 built from source targeting glibc 2.31
+          curl -fsSL -o /tmp/sdl3.tar.gz https://github.com/libsdl-org/SDL/archive/refs/tags/release-3.2.8.tar.gz
+          tar -xzf /tmp/sdl3.tar.gz -C /tmp
+          cmake -S /tmp/SDL-release-3.2.8 -B /tmp/sdl3-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$B/deps" \
+            -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+          cmake --build /tmp/sdl3-build --parallel
+          cmake --install /tmp/sdl3-build
+          if [ -d "$B/deps/lib/x86_64-linux-gnu" ]; then
+            cp -a "$B/deps/lib/x86_64-linux-gnu"/* "$B/deps/lib/"
+            rm -rf "$B/deps/lib/x86_64-linux-gnu"
+          fi
+
+          # 5. Vulkan, VMA, libvpx, opus headers + shared libs
+          cp -r /usr/include/vulkan "$B/deps/include/"
+          [ -d /usr/include/vk_video ] && cp -r /usr/include/vk_video "$B/deps/include/"
+          cp -r /usr/include/vpx "$B/deps/include/"
+          cp -r /usr/include/opus "$B/deps/include/"
+          curl -fsSL -o "$B/deps/include/vma/vk_mem_alloc.h" \
+            https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/v3.2.1/include/vk_mem_alloc.h
+          cp -a /usr/lib/x86_64-linux-gnu/libvpx.so* "$B/deps/lib/"
+          cp -a /usr/lib/x86_64-linux-gnu/libopus.so* "$B/deps/lib/"
+
+          # 6. Managed dmsh_xlate.dll + Linux .NET 10 runtime
+          PREV=$(gh release list --limit 10 --json tagName,isDraft,isPrerelease -q '[.[] | select(.isDraft==false and .isPrerelease==false) | .tagName][0]')
+          gh release download "$PREV" -p "MTF-Recomp-v*-Windows-x64.zip" -D /tmp/prev-dl
+          unzip -q /tmp/prev-dl/MTF-Recomp-v*-Windows-x64.zip "*/bin/xlate/*.dll" "*/bin/xlate/*.json" -d /tmp/prev-ext
+          XLATE_SRC=$(find /tmp/prev-ext -type d -name xlate | head -n 1)
+          cp "$XLATE_SRC"/dmsh_xlate.* "$XLATE_SRC"/Ryujinx.* "$XLATE_SRC"/Spv.Generator.dll "$XLATE_SRC"/Gommon.dll "$XLATE_SRC"/MsgPack.dll "$XLATE_SRC"/Humanizer.dll "$B/bin/xlate/" 2>/dev/null || true
+          curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+          chmod +x /tmp/dotnet-install.sh
+          /tmp/dotnet-install.sh --runtime dotnet --channel 10.0 --install-dir "$B/bin/xlate/dotnet"
+          cat > "$B/bin/xlate/dmsh_xlate" << 'EOF'
+          #!/usr/bin/env sh
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          exec "$HERE/dotnet/dotnet" "$HERE/dmsh_xlate.dll" "$@"
+          EOF
+          chmod +x "$B/bin/xlate/dmsh_xlate"
+
+      - name: Build libmtfrt.a and package Linux Experimental archive
+        run: |
+          VER=$(tr -d '\r\n' < VERSION)
+          python3 tools/make_linux_bundle.py --version "$VER" --bundle-dir build/linux-bundle --out build/release
+
+      - name: Upload Linux Experimental archive to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/release/MTF-Recomp-v*-Linux-x64-Experimental.tar.gz

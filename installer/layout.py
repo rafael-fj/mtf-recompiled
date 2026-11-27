@@ -17,11 +17,14 @@ Dev mode, root = a repository checkout: .venv's Python, the toolchain of docs/bu
 version from VERSION with -dev and the commit, build/generated/installer as the temp folder.
 """
 import json
+import os
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+IS_WIN = os.name == 'nt'
 
 
 @dataclass(frozen=True)
@@ -43,7 +46,8 @@ class Layout:
 
     def missing(self):
         """Paths the steps need that do not exist."""
-        need = [self.python, self.llvm / 'bin' / 'clang.exe', self.ninja, self.deps / 'include' / 'SDL3' / 'SDL.h',
+        clang = 'clang.exe' if IS_WIN else 'clang'
+        need = [self.python, self.llvm / 'bin' / clang, self.ninja, self.deps / 'include' / 'SDL3' / 'SDL.h',
                 self.deps / 'lib', self.xlate, self.root / 'CMakeLists.txt', self.runtime / 'main.c',
                 self.root / 'recomp' / 'lift.py', self.root / 'recomp' / 'glue.py', self.root / 'tools' / 'nup_extract.py',
                 self.root / 'tools' / 'shaders' / 'translate.py']
@@ -54,10 +58,18 @@ class Layout:
 
 def release_layout(root):
     version = root / 'VERSION'
+    if IS_WIN:
+        py = root / 'python' / 'python.exe'
+        ninja = root / 'bin' / 'ninja.exe'
+        xlate = root / 'bin' / 'xlate' / 'dmsh_xlate.exe'
+    else:
+        py = root / 'python' / 'bin' / 'python3'
+        ninja = root / 'bin' / 'ninja'
+        xlate = root / 'bin' / 'xlate' / 'dmsh_xlate'
     return Layout(root=root, dev=False,
                   release=version.read_text(encoding='utf-8').strip() if version.is_file() else 'unknown',
-                  python=root / 'python' / 'python.exe', llvm=root / 'llvm', cmake=None,
-                  ninja=root / 'bin' / 'ninja.exe', deps=root / 'deps', xlate=root / 'bin' / 'xlate' / 'dmsh_xlate.exe',
+                  python=py, llvm=root / 'llvm', cmake=None,
+                  ninja=ninja, deps=root / 'deps', xlate=xlate,
                   temp=root / 'temp')
 
 
@@ -123,7 +135,7 @@ def dev_layout(root):
 
 
 def is_release(root):
-    return (root / 'python' / 'python.exe').is_file()
+    return (root / 'python' / 'python.exe').is_file() if IS_WIN else (root / 'python' / 'bin' / 'python3').is_file()
 
 
 def find(root=None):
