@@ -114,7 +114,9 @@ def build_linux_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -
         if ext == ".cpp":
             if rel == "runtime/vk_vma.cpp":
                 extra = ["-std=c++17", "-Wno-nullability-completeness"]
-            elif rel in ("runtime/ui/menu.cpp", "runtime/ui/menu_sdl.cpp", "runtime/ui/option_rows.cpp"):
+            elif rel == "runtime/ui/menu.cpp":
+                extra = ["-std=c++20", f"-Wa,-I{(ROOT / 'runtime' / 'ui').as_posix()}"]
+            elif rel in ("runtime/ui/menu_sdl.cpp", "runtime/ui/option_rows.cpp"):
                 extra = ["-std=c++20"]
             elif rel.startswith("runtime/third_party/imgui/"):
                 extra = ["-std=c++17", "-w"]

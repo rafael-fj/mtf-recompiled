@@ -487,6 +487,8 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=Fals
             elif ext == '.cpp':
                 if rel_src == 'runtime/vk_vma.cpp':
                     extra = '-std=c++17 -Wno-nullability-completeness'
+                elif rel_src == 'runtime/ui/menu.cpp' and not IS_WIN:
+                    extra = f'-std=c++20 -Wa,-I{(lay.root / "runtime" / "ui").as_posix()}'
                 elif rel_src in ('runtime/ui/menu.cpp', 'runtime/ui/menu_win.cpp', 'runtime/ui/menu_sdl.cpp', 'runtime/ui/option_rows.cpp'):
                     extra = '-std=c++20'
                 elif rel_src.startswith('runtime/third_party/imgui/'):
