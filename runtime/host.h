@@ -99,14 +99,14 @@ typedef struct { const char *name; GuestFn fn; } RtHostEntry;
 // hostfn.c's ".ovr$a" and ".ovr$z" markers; on ELF "mtf_ovr", which the linker brackets with __start_mtf_ovr and
 // __stop_mtf_ovr.
 #ifdef _WIN32
-#define RT_HOST_SECTION(kind) section("." #kind "$m")
+#define RT_HOST_SECTION(kind) used, section("." #kind "$m")
 #else
-#define RT_HOST_SECTION(kind) section("mtf_" #kind)
+#define RT_HOST_SECTION(kind) used, retain, section("mtf_" #kind)
 #endif
 #define HOST_OVERRIDE(sym, fn) /* replaces sym in every GOT/GLOB_DAT/ABS64 of every module */                  \
-    __attribute__((used, RT_HOST_SECTION(ovr))) static const RtHostEntry RT_CAT(rt_ovr_, __COUNTER__) = {sym, fn}
+    __attribute__((RT_HOST_SECTION(ovr))) static const RtHostEntry RT_CAT(rt_ovr_, __COUNTER__) = {sym, fn}
 #define HOST_OBSERVER(sym, fn) /* JUMP_SLOT only; fn calls rt_original(c) */                                    \
-    __attribute__((used, RT_HOST_SECTION(obs))) static const RtHostEntry RT_CAT(rt_obs_, __COUNTER__) = {sym, fn}
+    __attribute__((RT_HOST_SECTION(obs))) static const RtHostEntry RT_CAT(rt_obs_, __COUNTER__) = {sym, fn}
 uint64_t hostfn_register(const char *name, GuestFn fn);    // synthetic address; before hostfn_seal only. The same
                                                            // (name, fn) pair returns the same address
 typedef void (*HostUserFn)(Cpu *c, void *user);

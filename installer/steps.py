@@ -98,9 +98,12 @@ def tool_env(ctx):
     env = dict(os.environ, PYTHONUTF8='1', PYTHONIOENCODING='utf-8', PYTHONUNBUFFERED='1', MTF_LLVM_MINGW_ROOT=str(lay.llvm),
                MTF_GENERATED_ROOT=str(ctx.temp), MTF_CONTENT_ROOT=str(game(ctx)))   # where game-derived output may go
     if not lay.dev:
-        system = os.environ.get('SystemRoot', r'C:\Windows')
-        env['PATH'] = os.pathsep.join([str(lay.llvm / 'bin'), str(lay.ninja.parent), str(lay.deps / 'bin'),
-                                       rf'{system}\System32', system])
+        if os.name == 'nt':
+            system = os.environ.get('SystemRoot', r'C:\Windows')
+            sys_dirs = [rf'{system}\System32', system]
+        else:
+            sys_dirs = ['/usr/bin', '/bin']
+        env['PATH'] = os.pathsep.join([str(lay.llvm / 'bin'), str(lay.ninja.parent), str(lay.deps / 'bin'), *sys_dirs])
     return env
 
 
@@ -262,9 +265,16 @@ class Check(Step):
                     raise InstallError('check.keys_missing', path=str(opts.keys))
         if opts.dlss_file and (not opts.dlss_file.is_file() or opts.dlss_file.name.lower() != DLSS_DLL):
             raise InstallError('check.dlss_file_bad', path=str(opts.dlss_file))
-        system = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32'
-        if not (system / 'vulkan-1.dll').is_file():
-            raise InstallError('check.no_vulkan')
+        if IS_WIN:
+            system = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32'
+            if not (system / 'vulkan-1.dll').is_file():
+                raise InstallError('check.no_vulkan')
+        else:
+            vk_paths = ('/usr/lib/x86_64-linux-gnu/libvulkan.so.1', '/usr/lib/libvulkan.so.1', '/usr/lib64/libvulkan.so.1')
+            if not any(Path(p).exists() for p in vk_paths):
+                import ctypes.util
+                if not ctypes.util.find_library('vulkan'):
+                    raise InstallError('check.no_vulkan')
         gpus = gpu_names()
         if gpus and not any('NVIDIA' in g.upper() for g in gpus):
             rep.warning('warn.gpu_untested', gpu=gpus[0])
@@ -402,8 +412,8 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=Fals
     split_rt = IS_WIN and portable and (lay.deps / 'lib' / 'libmtf-recomp.dll.a').is_file() and (lay.deps / 'bin' / 'mtf-recomp.exe').is_file()
     prebuilt_rt = (not split_rt) and (lay.deps / 'lib' / 'libmtfrt.a').is_file()
     link_driver = '$cc' if (split_rt or prebuilt_rt) else '$cxx'
-    rt_libs = ('-Wl,--whole-archive -lmtfrt -Wl,--no-whole-archive -lc++ ' if IS_WIN
-               else '-Wl,--whole-archive -lmtfrt -Wl,--no-whole-archive -lstdc++ ') if prebuilt_rt else ''
+    rt_libs = (f'-Wl,--whole-archive "{(lay.deps / "lib" / "libmtfrt.a").as_posix()}" -Wl,--no-whole-archive -lc++ ' if IS_WIN
+               else f'-Wl,--whole-archive "{(lay.deps / "lib" / "libmtfrt.a").as_posix()}" -Wl,--no-whole-archive -lstdc++ ') if prebuilt_rt else ''
     rsp_file = tree / 'objects.rsp'
 
     if split_rt:
@@ -416,7 +426,7 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=Fals
                     f'-lmbedcrypto -leverest -lp256m -liphlpapi -lpsapi -lbcrypt -luser32 -lgdi32 -ldwmapi -limm32 '
                     f'-lwinmm -lole32 -loleaut32 -lmfplat -lmfuuid -lshell32 -luuid -lpdh -lrstrtmgr -lws2_32 -lwinhttp -o $out')
     else:
-        link_cmd = (f'{link_driver} -O2 -g {march} -Wl,-rpath,\'$$ORIGIN\' '
+        link_cmd = (f'{link_driver} -O2 -g {march} -Wl,--no-gc-sections -Wl,-rpath,\'$$ORIGIN\' '
                     f'@"{rsp_file.as_posix()}" -L"{(lay.deps / "lib").as_posix()}" {rt_libs}'
                     f'-lvulkan -lSDL3 -lopus -lvpx -lcurl -lpthread -ldl -lm -o $out')
 
@@ -684,7 +694,11 @@ class Build(Step):
         out = ctx.temp / 'bin'
         build(ctx, 'build', ['main', 'sdk', 'nro'], out, portable=True)
         for f in out.iterdir():
-            if f.suffix.lower() in ('.exe', '.dll') and f.name != DLSS_DLL:
+            if IS_WIN:
+                keep = f.suffix.lower() in ('.exe', '.dll') and f.name != DLSS_DLL
+            else:
+                keep = (f.name == EXE or '.so' in f.name) and not f.name.startswith('libvulkan.')
+            if keep:
                 shutil.copy2(f, ctx.dest / f.name)
         for cand in (ctx.layout.root / 'mtf-updater.exe', ctx.layout.deps / 'bin' / 'mtf-updater.exe'):
             if cand.is_file():

@@ -75,10 +75,19 @@ __attribute__((target("sha,sse4.1"))) static void blocks_ni(uint32_t h[8], const
 }
 #endif
 
+#if defined(__x86_64__) && (!defined(__clang__) || __clang_major__ >= 19)
+#include <cpuid.h>
+#endif
+
 static void blocks(uint32_t h[8], const uint8_t *p, size_t n) {
 #if defined(__x86_64__) && (!defined(__clang__) || __clang_major__ >= 19)
     static int ni = -1;
-    if (ni < 0) ni = __builtin_cpu_supports("sha") && __builtin_cpu_supports("sse4.1");
+    if (ni < 0) {
+        unsigned int a1 = 0, b1 = 0, c1 = 0, d1 = 0, a7 = 0, b7 = 0, c7 = 0, d7 = 0;
+        __cpuid(1, a1, b1, c1, d1);
+        __cpuid_count(7, 0, a7, b7, c7, d7);
+        ni = ((b7 >> 29) & 1) && ((c1 >> 19) & 1);
+    }
     if (ni) return blocks_ni(h, p, n);
 #endif
     blocks_c(h, p, n);

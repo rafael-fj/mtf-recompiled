@@ -131,7 +131,7 @@ jobs:
           gh release download -R astral-sh/python-build-standalone \
             -p "cpython-3.12.*+*-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz" -D /tmp/py-dl
           tar -xzf /tmp/py-dl/cpython-3.12.*.tar.gz -C "$B"
-          "$B/python/bin/python3" -m pip install --no-cache-dir zstandard pillow
+          "$B/python/bin/python3" -m pip install --no-cache-dir zstandard pillow numpy lz4 cryptography backports.zstd
 
           # 4. SDL3 built from source targeting glibc 2.31
           curl -fsSL -o /tmp/sdl3.tar.gz https://github.com/libsdl-org/SDL/archive/refs/tags/release-3.2.8.tar.gz
@@ -159,6 +159,7 @@ jobs:
           cp -a /usr/lib/x86_64-linux-gnu/libvpx.so* "$B/deps/lib/"
           cp -a /usr/lib/x86_64-linux-gnu/libopus.so* "$B/deps/lib/"
           cp -a /usr/lib/x86_64-linux-gnu/libcurl.so* "$B/deps/lib/"
+          cp -L /usr/lib/x86_64-linux-gnu/libvulkan.so.1 "$B/deps/lib/libvulkan.so"
 
           # 6. Managed dmsh_xlate.dll + Linux .NET 10 runtime
           PREV=$(gh release list --limit 10 --json tagName,isDraft,isPrerelease -q '[.[] | select(.isDraft==false and .isPrerelease==false) | .tagName][0]')
