@@ -146,9 +146,11 @@ jobs:
             rm -rf "$B/deps/lib/x86_64-linux-gnu"
           fi
 
-          # 5. Vulkan, VMA, libvpx, opus headers + shared libs
-          cp -r /usr/include/vulkan "$B/deps/include/"
-          [ -d /usr/include/vk_video ] && cp -r /usr/include/vk_video "$B/deps/include/"
+          # 5. Vulkan-Headers (1.4.304 for dynamic_rendering_local_read), VMA, libvpx, opus headers + shared libs
+          curl -fsSL -o /tmp/vk-headers.tar.gz https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.304.tar.gz
+          tar -xzf /tmp/vk-headers.tar.gz -C /tmp
+          cp -r /tmp/Vulkan-Headers-1.4.304/include/vulkan "$B/deps/include/"
+          cp -r /tmp/Vulkan-Headers-1.4.304/include/vk_video "$B/deps/include/"
           cp -r /usr/include/vpx "$B/deps/include/"
           cp -r /usr/include/opus "$B/deps/include/"
           curl -fsSL -o "$B/deps/include/vma/vk_mem_alloc.h" \
@@ -176,6 +178,13 @@ jobs:
         run: |
           VER=$(tr -d '\r\n' < VERSION)
           python3 tools/make_linux_bundle.py --version "$VER" --bundle-dir build/linux-bundle --out build/release
+
+      - name: Upload Linux Experimental artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mtf-recomp-linux-experimental
+          path: build/release/MTF-Recomp-v*-Linux-x64-Experimental.tar.gz
+          retention-days: 3
 
       - name: Upload Linux Experimental archive to Release
         if: startsWith(github.ref, 'refs/tags/v')
