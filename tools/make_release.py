@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import io
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -172,6 +174,52 @@ def make_runtime_zip(version: str, out_dir: Path, bundle_dir: Path | None = None
     return rt_zip
 
 
+def make_linux_tar(version: str, out_dir: Path, bundle_dir: Path | None = None) -> Path:
+    """Package MTF-Recomp-v<version>-Linux-x64-Experimental.tar.gz (Experimental Linux source+installer bundle)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tar_path = out_dir / f"MTF-Recomp-v{version}-Linux-x64-Experimental.tar.gz"
+    top = Path(f"MTF-Recomp-v{version}-Linux-x64-Experimental")
+    if tar_path.exists():
+        tar_path.unlink()
+    readme_text = (
+        f"MTF Recomp v{version} — Linux x64 (EXPERIMENTAL)\n"
+        "================================================\n\n"
+        "WARNING: Linux support is EXPERIMENTAL. It is not yet pre-bundled with\n"
+        "Linux native libraries or a standalone binary.\n\n"
+        "System requirements (install via your distro package manager):\n"
+        "  - Python 3.11+ (with python3-tk for GUI)\n"
+        "  - CMake, Ninja, Clang / Clang++ (LLD)\n"
+        "  - .NET 8/9 Runtime (for tools/shaders/translate.py with bin/xlate)\n"
+        "  - Development libraries: Vulkan, SDL3, libvpx, opus, libdatachannel\n\n"
+        "Usage:\n"
+        "  python3 -m installer\n\n"
+        "First-run note: Brief shader/pipeline compilation stutters may occur on\n"
+        "your first launch; subsequent runs will be smooth.\n"
+    ).encode("utf-8")
+    with tarfile.open(tar_path, "w:gz") as tf:
+        ti = tarfile.TarInfo((top / "README-LINUX-EXPERIMENTAL.txt").as_posix())
+        ti.size = len(readme_text)
+        ti.mode = 0o644
+        tf.addfile(ti, io.BytesIO(readme_text))
+        for rel in PLAYER_FILES:
+            src = ROOT / rel
+            if src.is_file():
+                tf.add(src, arcname=(top / rel).as_posix())
+        for rel in PLAYER_DIRS:
+            src_dir = ROOT / rel
+            if not src_dir.is_dir():
+                continue
+            for p in sorted(src_dir.rglob("*")):
+                if p.is_file() and not should_skip(p.relative_to(ROOT)):
+                    tf.add(p, arcname=(top / p.relative_to(ROOT)).as_posix())
+        if bundle_dir is not None and (bundle_dir / "bin" / "xlate").is_dir():
+            for p in sorted((bundle_dir / "bin" / "xlate").rglob("*")):
+                if p.is_file():
+                    arc = top / "bin" / "xlate" / p.relative_to(bundle_dir / "bin" / "xlate")
+                    tf.add(p, arcname=arc.as_posix())
+    return tar_path
+
+
 def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None:
     """Pre-compile runtime C/C++ sources (except loader.c/memory.c which include layout.h) into libmtfrt.a + mtf.rc.obj."""
     cmake_text = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
@@ -293,6 +341,7 @@ def main() -> int:
     ap.add_argument("--version", default="0.1.0-dev", help="Release version tag")
     ap.add_argument("--out", type=Path, default=ROOT / "build" / "release", help="Output directory")
     ap.add_argument("--windows-zip", action="store_true", help="Also build MTF-Recomp-v<version>-Windows-x64.zip")
+    ap.add_argument("--linux-tar", action="store_true", help="Also build MTF-Recomp-v<version>-Linux-x64-Experimental.tar.gz")
     ap.add_argument("--bundle-dir", type=Path, default=None, help="Optional self-contained toolchain dir (python/llvm/cmake/bin/deps) to include in Windows zip")
     ap.add_argument("--make-runtime-lib", action="store_true", help="Build libmtfrt.a + mtf.rc.obj into <bundle-dir>/deps/lib before packaging")
     args = ap.parse_args()
@@ -314,6 +363,10 @@ def main() -> int:
         if rt_zip is not None:
             rt_mb = rt_zip.stat().st_size / (1024 * 1024)
             print(f"Created Fast Runtime Update archive: {rt_zip} ({rt_mb:.2f} MiB)")
+    if args.linux_tar:
+        lin_tar = make_linux_tar(args.version, args.out, args.bundle_dir)
+        lin_mb = lin_tar.stat().st_size / (1024 * 1024)
+        print(f"Created Experimental Linux archive: {lin_tar} ({lin_mb:.2f} MiB)")
     return 0
 
 

@@ -93,7 +93,7 @@
   "ui.result_ok": "The game is ready",
   "ui.result_failed": "The setup failed",
   "ui.result_cancelled": "The setup was cancelled",
-  "ui.done_text": "Start {game_exe} from {dest}. The setup program and the game file you chose are no longer needed.",
+  "ui.done_text": "Start {game_exe} from {dest}. The setup program and the game file you chose are no longer needed.\n\nNote: On the first launch, brief stutters may occur while shaders and pipelines finish compiling. Subsequent runs will be smooth.",
   "ui.cancelled_text": "The finished steps are kept. Start the setup again with the same folder to continue.",
   "ui.log_file": "Log file: {path}",
   "ui.process_died": "The setup stopped unexpectedly (exit code {code}).",

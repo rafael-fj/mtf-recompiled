@@ -93,7 +93,7 @@
   "ui.result_ok": "O jogo está pronto",
   "ui.result_failed": "A instalação falhou",
   "ui.result_cancelled": "A instalação foi cancelada",
-  "ui.done_text": "Abra o {game_exe} em {dest}. O programa de instalação e o arquivo do jogo que você escolheu não são mais necessários.",
+  "ui.done_text": "Abra o {game_exe} em {dest}. O programa de instalação e o arquivo do jogo que você escolheu não são mais necessários.\n\nAviso: Na primeira execução, alguns engasgos (stutters) breves podem ser esperados durante a compilação inicial de pipelines; nas execuções seguintes o desempenho ficará estável.",
   "ui.cancelled_text": "As etapas concluídas são mantidas. Inicie a instalação de novo com a mesma pasta para continuar.",
   "ui.log_file": "Arquivo de log: {path}",
   "ui.process_died": "A instalação parou de forma inesperada (código de saída {code}).",
