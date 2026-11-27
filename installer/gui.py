@@ -77,10 +77,10 @@ class App:
 
         root.title(self.cat('ui.title'))
         icon = layout.runtime / 'mtf.ico'
-        if icon.is_file():
+        if os.name == 'nt' and icon.is_file():
             root.iconbitmap(default=str(icon))
         root.protocol('WM_DELETE_WINDOW', self.on_close)
-        self.ui_font, self.mono_font = 'Segoe UI', 'Consolas'
+        self.ui_font, self.mono_font = ('Segoe UI', 'Consolas') if os.name == 'nt' else ('TkDefaultFont', 'TkFixedFont')
         style = ttk.Style(root)
         style.configure('Title.TLabel', font=(self.ui_font, 15, 'bold'))
         style.configure('Notice.TLabel', background='#fff3cd', foreground='#664d03', padding=dpi.px(8))
