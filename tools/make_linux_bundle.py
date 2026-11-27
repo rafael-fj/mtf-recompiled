@@ -30,6 +30,25 @@ def _write_exec(path: Path, text: str) -> None:
     path.chmod(0o755)
 
 
+def _zig_wrapper(tool: str) -> str:
+    return (
+        '#!/usr/bin/env sh\n'
+        'HERE="$(cd "$(dirname "$0")" && pwd)"\n'
+        'n=$#\n'
+        'i=0\n'
+        'while [ "$i" -lt "$n" ]; do\n'
+        '  a="$1"; shift\n'
+        '  case "$a" in\n'
+        '    -march=x86-64-v2) set -- "$@" -mcpu=x86_64_v2 ;;\n'
+        '    -march=x86-64-v3) set -- "$@" -mcpu=x86_64_v3 ;;\n'
+        '    *) set -- "$@" "$a" ;;\n'
+        '  esac\n'
+        '  i=$((i + 1))\n'
+        'done\n'
+        f'exec "$HERE/../zig/zig" {tool} -target x86_64-linux-gnu.2.31 "$@"\n'
+    )
+
+
 def setup_zig_wrappers(zig_dir: Path, llvm_dir: Path) -> None:
     """Expose Zig cc/c++/ar as llvm/bin/{clang,clang++,llvm-ar} targeting glibc 2.31."""
     bin_dir = llvm_dir / "bin"
@@ -37,18 +56,8 @@ def setup_zig_wrappers(zig_dir: Path, llvm_dir: Path) -> None:
     zig_bin = zig_dir / "zig"
     if not zig_bin.is_file():
         raise FileNotFoundError(f"zig binary not found at {zig_bin}")
-    _write_exec(
-        bin_dir / "clang",
-        '#!/usr/bin/env sh\n'
-        'HERE="$(cd "$(dirname "$0")" && pwd)"\n'
-        'exec "$HERE/../zig/zig" cc -target x86_64-linux-gnu.2.31 "$@"\n',
-    )
-    _write_exec(
-        bin_dir / "clang++",
-        '#!/usr/bin/env sh\n'
-        'HERE="$(cd "$(dirname "$0")" && pwd)"\n'
-        'exec "$HERE/../zig/zig" c++ -target x86_64-linux-gnu.2.31 "$@"\n',
-    )
+    _write_exec(bin_dir / "clang", _zig_wrapper("cc"))
+    _write_exec(bin_dir / "clang++", _zig_wrapper("c++"))
     _write_exec(
         bin_dir / "llvm-ar",
         '#!/usr/bin/env sh\n'
