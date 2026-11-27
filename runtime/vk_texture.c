@@ -282,6 +282,22 @@ static VkDeviceSize image_size(const VkImageCreateInfo *ci) {
 
 // UNDEFINED -> GENERAL; new depth / stencil images start cleared (a game may copy depth
 // without stencil, and the stencil of those images must not be whatever the memory held).
+static int vk_fmt_is_float(VkFormat f) {
+    switch (f) {
+    case VK_FORMAT_R16_SFLOAT:
+    case VK_FORMAT_R16G16_SFLOAT:
+    case VK_FORMAT_R16G16B16A16_SFLOAT:
+    case VK_FORMAT_R32_SFLOAT:
+    case VK_FORMAT_R32G32_SFLOAT:
+    case VK_FORMAT_R32G32B32A32_SFLOAT:
+    case VK_FORMAT_B10G11R11_UFLOAT_PACK32:
+    case VK_FORMAT_E5B9G9R9_UFLOAT_PACK32:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 static void init_image(Tex *e, VkCommandBuffer cb) {
     VkImageMemoryBarrier2 ib = {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2, .srcStageMask = VK_PIPELINE_STAGE_2_NONE,
                                 .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
@@ -296,7 +312,8 @@ static void init_image(Tex *e, VkCommandBuffer cb) {
         VkImageSubresourceRange rg = {e->pub.aspect, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
         vkCmdClearDepthStencilImage(cb, e->pub.image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &rg);
         barrier(cb, VK_PIPELINE_STAGE_2_CLEAR_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, ALL_RW);
-    } else if (vk_fix_zero() && !e->bound_to && !e->pub.mirrored && !format_compressed(e->f.vk)) {
+    } else if (vk_fix_zero() && !e->pub.mirrored && !format_compressed(e->f.vk) &&
+               (!e->bound_to || (e->pub.type == VK_IMAGE_TYPE_3D && vk_fmt_is_float(e->f.vk)))) {
         // GPU-only storage that got memory of its own starts at zero, as the pool it stands for (vk_memory.c
         // alloc_physical). Images aliasing pool memory are not cleared: that would erase what other textures rendered
         // there; mirrored images are uploaded from their storage on first use.
@@ -1225,6 +1242,7 @@ static int alias_compatible(const Tex *e, const Tex *src) {
     if (p->type != q->type || p->width != q->width || p->height != q->height || p->depth != q->depth) return 0;
     if (e->t.L.size != src->t.L.size || nvn_tex_is_linear(&e->t.d) != nvn_tex_is_linear(&src->t.d)) return 0;
     int ew, eh, sw, sh, eb = img_block(e, &ew, &eh), sb = img_block(src, &sw, &sh);
+    if (vk_fmt_is_float(e->f.vk) != vk_fmt_is_float(src->f.vk)) return 0;
     return eb && eb == sb && ew == sw && eh == sh;
 }
 

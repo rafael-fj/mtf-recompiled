@@ -71,7 +71,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION -Raw).Trim()
-          python tools/make_release.py --version $ver --windows-zip --linux-tar --make-runtime-lib --bundle-dir build/release-bundle
+          python tools/make_release.py --version $ver --windows-zip --make-runtime-lib --bundle-dir build/release-bundle
 
       - name: Prepare release notes from tag
         if: startsWith(github.ref, 'refs/tags/v')
@@ -91,5 +91,4 @@ jobs:
           files: |
             build/release/MTF-Recomp-v*-Windows-x64.zip
             build/release/MTF-Runtime-v*-Windows-x64.zip
-            build/release/MTF-Recomp-v*-Linux-x64-Experimental.tar.gz
             build/release/mtf-recomp-*-src.zip
