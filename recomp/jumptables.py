@@ -29,7 +29,7 @@ import numpy as np
 
 from lifter import bits, decode_bit_masks, sext
 
-MAX_BLOCK = 64       # instructions in one block
+MAX_BLOCK = 256      # instructions in one block
 MAX_DEPTH = 4        # predecessor blocks above the dispatch block
 MAX_PATHS = 32       # paths explored per br
 MAX_COUNT = 4096     # table entries

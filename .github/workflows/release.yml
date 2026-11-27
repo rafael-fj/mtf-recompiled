@@ -191,8 +191,18 @@ jobs:
           path: build/release/MTF-Recomp-v*-Linux-x64-Experimental.tar.gz
           retention-days: 3
 
+  publish-linux-release:
+    needs: [build-release, build-linux-experimental]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download Linux Experimental artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mtf-recomp-linux-experimental
+          path: dist
+
       - name: Upload Linux Experimental archive to Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/release/MTF-Recomp-v*-Linux-x64-Experimental.tar.gz
+          files: dist/MTF-Recomp-v*-Linux-x64-Experimental.tar.gz

@@ -245,7 +245,8 @@ def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None
     out_lib_dir.mkdir(parents=True, exist_ok=True)
 
     cc = str(llvm_dir / "bin" / "clang.exe")
-    cxx = str(llvm_dir / "bin" / "clang++.exe")
+    cxx_exe = llvm_dir / "bin" / "clang++.exe"
+    cxx_cmd = [str(cxx_exe)] if cxx_exe.is_file() else [cc, "--driver-mode=g++"]
     rc = str(llvm_dir / "bin" / "llvm-windres.exe")
     ar = str(llvm_dir / "bin" / "llvm-ar.exe")
     port_ver = (ROOT / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / "VERSION").is_file() else "0.1.0"
@@ -280,7 +281,7 @@ def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None
                 extra = ["-std=c++17", "-w"]
             else:
                 extra = ["-std=c++17"]
-            tasks.append(([cxx, *common, *extra, "-c", str(src), "-o", str(obj)], obj, True, rel))
+            tasks.append(([*cxx_cmd, *common, *extra, "-c", str(src), "-o", str(obj)], obj, True, rel))
         elif rel == "runtime/game_host.c":
             split_obj = (obj_root / "runtime" / "game_host_split.obj")
             tasks.append(([cc, *common, "-std=gnu17", "-c", str(src), "-o", str(obj)], obj, "ar", rel))
@@ -316,7 +317,7 @@ def build_runtime_lib(llvm_dir: Path, deps_dir: Path, out_lib_dir: Path) -> None
     rt_rsp = obj_root / "rt_split.rsp"
     rt_rsp.write_text("\n".join(f'"{Path(o).as_posix()}"' for o in [*split_objs, str(rc_obj_path)]) + "\n", encoding="utf-8")
     subprocess.check_call([
-        cxx, "--target=x86_64-w64-windows-gnu", "-O2", "-g", "-march=x86-64-v2",
+        *cxx_cmd, "--target=x86_64-w64-windows-gnu", "-O2", "-g", "-march=x86-64-v2",
         "-fuse-ld=lld", "-Wl,--stack,16777216", "-Wl,--error-limit=0",
         f"-Wl,--export-all-symbols,--out-implib,{rt_implib.as_posix()}",
         f"@{rt_rsp.as_posix()}", f"-L{out_lib_dir.as_posix()}",
