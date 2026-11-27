@@ -66,6 +66,9 @@ jobs:
             if (Test-Path $src) { Move-Item -Path $src -Destination (Join-Path build/release-bundle $d) }
           }
           Remove-Item -Recurse -Force build/prev-dl, build/prev-ext
+          gh release download 20261104 -R mstorsjo/llvm-mingw -p "llvm-mingw-20261104-ucrt-x86_64.zip" -D build/llvm-dl
+          Expand-Archive -Path build/llvm-dl/llvm-mingw-20261104-ucrt-x86_64.zip -DestinationPath toolchain -Force
+          Remove-Item -Recurse -Force build/llvm-dl
 
       - name: Package release archives
         shell: pwsh
