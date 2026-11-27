@@ -346,7 +346,7 @@ def main() -> int:
     ap.add_argument("--make-runtime-lib", action="store_true", help="Build libmtfrt.a + mtf.rc.obj into <bundle-dir>/deps/lib before packaging")
     args = ap.parse_args()
     if args.make_runtime_lib:
-        bdir = args.bundle_dir or (ROOT / "build" / "release-bundle")
+        bdir = (args.bundle_dir or (ROOT / "build" / "release-bundle")).resolve()
         llvm = next((p for p in (ROOT / "toolchain").glob("llvm-mingw-*") if p.is_dir()), bdir / "llvm")
         deps = (ROOT / "toolchain" / "deps-mingw") if (ROOT / "toolchain" / "deps-mingw").is_dir() else (bdir / "deps")
         build_runtime_lib(llvm, deps, bdir / "deps" / "lib")

@@ -128,10 +128,9 @@ jobs:
           mv "$B/llvm"/zig-linux-x86_64-* "$B/llvm/zig"
 
           # 3. Portable Python 3.12 (with tkinter + zstandard + pillow)
-          PY_URL=$(curl -fsSL https://api.github.com/repos/indygreg/python-build-standalone/releases/latest | \
-            python3 -c "import sys,json; rel=json.load(sys.stdin); print(next(a['browser_download_url'] for a in rel['assets'] if 'cpython-3.12.' in a['name'] and 'x86_64-unknown-linux-gnu-install_only_stripped.tar.gz' in a['name']))")
-          curl -fsSL -o /tmp/python.tar.gz "$PY_URL"
-          tar -xzf /tmp/python.tar.gz -C "$B"
+          gh release download -R astral-sh/python-build-standalone \
+            -p "cpython-3.12.*+*-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz" -D /tmp/py-dl
+          tar -xzf /tmp/py-dl/cpython-3.12.*.tar.gz -C "$B"
           "$B/python/bin/python3" -m pip install --no-cache-dir zstandard pillow
 
           # 4. SDL3 built from source targeting glibc 2.31
