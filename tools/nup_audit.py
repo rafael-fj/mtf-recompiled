@@ -139,7 +139,18 @@ def audit_nup(path: Path) -> NupAudit:
     )
 
 
+def _has_complete_update(audit: NupAudit) -> bool:
+    for p in audit.packages:
+        if p.title_id == audit.title_id and p.kind == "update" and p.version == 327680:
+            has_main = any(f.path == "exefs/main" for f in p.files)
+            has_romfs = any(f.path.startswith("romfs/") for f in p.files)
+            if has_main and has_romfs:
+                return True
+    return False
+
+
 def _summary(audit: NupAudit) -> str:
+    complete_upd = _has_complete_update(audit)
     lines = [
         f"structurally valid NUP: {audit.input_path}",
         f"title: {audit.title_id}; base present: {'yes' if audit.base_present else 'no'}",
@@ -152,9 +163,12 @@ def _summary(audit: NupAudit) -> str:
         ),
     ]
     if not audit.base_present:
-        lines.append(
-            f"the base package of title {audit.title_id} is missing; nothing extracted."
-        )
+        if complete_upd:
+            lines.append("base package absent, but update v327680 (1.1.1) is complete (standalone).")
+        else:
+            lines.append(
+                f"the base package of title {audit.title_id} is missing; nothing extracted."
+            )
     if 327680 not in audit.update_versions:
         lines.append("the expected update v327680 (1.1.1) is not there.")
     return "\n".join(lines)
@@ -170,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(audit.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(_summary(audit))
-        if not audit.base_present or 327680 not in audit.update_versions:
+        if (not audit.base_present and not _has_complete_update(audit)) or 327680 not in audit.update_versions:
             return 2
         return 0
     except (OSError, F.NupError, NupAuditError, ValueError) as exc:

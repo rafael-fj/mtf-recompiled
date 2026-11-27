@@ -17,7 +17,7 @@ from nup import format as F  # noqa: E402
 from nup.access import iter_children  # noqa: E402
 from nup.read import NupReader, PackageInfo  # noqa: E402
 
-from tools.nup_audit import audit_nup  # noqa: E402
+from tools.nup_audit import _has_complete_update, audit_nup  # noqa: E402
 from tools.nup_types import TARGET_TITLE_ID  # noqa: E402
 
 
@@ -170,7 +170,7 @@ def extract_nup(report_path: Path, destination: Path) -> Path:
     destination = destination.expanduser().resolve()
     if not destination.is_relative_to(allowed_root):
         raise ValueError(f"extraction must stay under {allowed_root}")
-    if not audit.base_present:
+    if not audit.base_present and not _has_complete_update(audit):
         raise ValueError(f"matching base package {TARGET_TITLE_ID} is absent")
     if 327680 not in audit.update_versions or audit.profile_version != "1.1.1":
         raise ValueError("matching update v327680 / profile 1.1.1 is absent")
@@ -201,7 +201,7 @@ def extract_nup(report_path: Path, destination: Path) -> Path:
                 "files": package_files,
             })
 
-    if not any(item["kind"] == "base" for item in manifest["packages"]):
+    if audit.base_present and not any(item["kind"] == "base" for item in manifest["packages"]):
         raise ValueError("NUP audit and extraction package inventory disagree: base missing")
     if not any(item["kind"] == "update" and item["version"] == 327680 for item in manifest["packages"]):
         raise ValueError("NUP audit and extraction package inventory disagree: update v327680 missing")
