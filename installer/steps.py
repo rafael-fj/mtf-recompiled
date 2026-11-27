@@ -418,7 +418,7 @@ def _write_build_ninja(lay, tree, dirs, glue, out, march, cpu_def, portable=Fals
     else:
         link_cmd = (f'{link_driver} -O2 -g {march} -Wl,-rpath,\'$$ORIGIN\' '
                     f'@"{rsp_file.as_posix()}" -L"{(lay.deps / "lib").as_posix()}" {rt_libs}'
-                    f'-lvulkan -lSDL3 -lopus -lvpx -lpthread -ldl -lm -o $out')
+                    f'-lvulkan -lSDL3 -lopus -lvpx -lcurl -lpthread -ldl -lm -o $out')
 
     lines = [
         'ninja_required_version = 1.5',

@@ -104,7 +104,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config curl xz-utils unzip \
-            libvulkan-dev libvpx-dev libopus-dev \
+            libvulkan-dev libvpx-dev libopus-dev libcurl4-openssl-dev \
             libwayland-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
             libxi-dev libxfixes-dev libxkbcommon-dev libgl-dev libdrm-dev libgbm-dev \
             libasound2-dev libpulse-dev libdbus-1-dev libudev-dev
@@ -153,10 +153,12 @@ jobs:
           cp -r /tmp/Vulkan-Headers-1.4.304/include/vk_video "$B/deps/include/"
           cp -r /usr/include/vpx "$B/deps/include/"
           cp -r /usr/include/opus "$B/deps/include/"
+          cp -r /usr/include/x86_64-linux-gnu/curl "$B/deps/include/"
           curl -fsSL -o "$B/deps/include/vma/vk_mem_alloc.h" \
             https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/v3.2.1/include/vk_mem_alloc.h
           cp -a /usr/lib/x86_64-linux-gnu/libvpx.so* "$B/deps/lib/"
           cp -a /usr/lib/x86_64-linux-gnu/libopus.so* "$B/deps/lib/"
+          cp -a /usr/lib/x86_64-linux-gnu/libcurl.so* "$B/deps/lib/"
 
           # 6. Managed dmsh_xlate.dll + Linux .NET 10 runtime
           PREV=$(gh release list --limit 10 --json tagName,isDraft,isPrerelease -q '[.[] | select(.isDraft==false and .isPrerelease==false) | .tagName][0]')
