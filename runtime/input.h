@@ -31,6 +31,7 @@ enum { PAD_LABEL_NONE, PAD_LABEL_A, PAD_LABEL_B, PAD_LABEL_X, PAD_LABEL_Y,
        PAD_LABEL_CROSS, PAD_LABEL_CIRCLE, PAD_LABEL_SQUARE, PAD_LABEL_TRIANGLE };
 typedef struct { int type; char name[128]; } InputPadInfo;
 int input_capture(int reset, int *id_out);
+int input_capture_for(int player, int reset, int *id_out);
 uint32_t input_key_char(int key);
 int input_pad_label(int pad);
 int input_pad_layout(void);

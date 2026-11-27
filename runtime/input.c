@@ -111,17 +111,21 @@ static void read_key_down(uint8_t down[KEY_COUNT]) {
 }
 #endif
 
-static void keyboard_read(uint64_t *buttons, int32_t axes[4]) {
+static void keyboard_read_for(const InputMap *m, uint64_t *buttons, int32_t axes[4]) {
     uint8_t down[KEY_COUNT];
     read_key_down(down);
-    *buttons |= input_map_buttons(down);
+    *buttons |= input_map_buttons_for(m, down);
     int32_t ls[2] = {0}, rs[2] = {0};
-    input_map_stick(down, 0, ls);
-    input_map_stick(down, 1, rs);
+    input_map_stick_for(m, down, 0, ls);
+    input_map_stick_for(m, down, 1, rs);
     if (ls[0]) axes[0] = ls[0];
     if (ls[1]) axes[1] = ls[1];
     if (rs[0]) axes[2] = rs[0];
     if (rs[1]) axes[3] = rs[1];
+}
+
+static void keyboard_read(uint64_t *buttons, int32_t axes[4]) {
+    keyboard_read_for(input_map_for_player(0), buttons, axes);
 }
 
 int input_shake_held(void) {
@@ -222,6 +226,8 @@ static void stick(int16_t sx, int16_t sy, int32_t *ox, int32_t *oy) {
 
 static uint8_t pad_down_live[PAD_COUNT];
 static int pad_layout_now = -1;
+static uint8_t pad_down_arr[INPUT_MAX_PADS][PAD_COUNT];
+static int pad_layout_arr[INPUT_MAX_PADS];
 
 static void read_pad_down_dev(SDL_Gamepad *gp, uint8_t pdown[PAD_COUNT]) {
     memset(pdown, 0, PAD_COUNT);
@@ -252,16 +258,22 @@ static void pad_read(void) {
             int nin = nintendo_layout_dev(pads[i]);
             int layout = nin ? PAD_LAYOUT_NINTENDO : PAD_LAYOUT_XBOX;
             read_pad_down_dev(pads[i], pdown);
-            b = input_map_pad_buttons(pdown, layout);
+            memcpy(pad_down_arr[i], pdown, sizeof pdown);
+            pad_layout_arr[i] = layout;
+            b = input_map_pad_buttons_for(input_map_for_player(i), pdown, layout);
             stick(SDL_GetGamepadAxis(pads[i], SDL_GAMEPAD_AXIS_LEFTX), SDL_GetGamepadAxis(pads[i], SDL_GAMEPAD_AXIS_LEFTY), &a[0], &a[1]);
             stick(SDL_GetGamepadAxis(pads[i], SDL_GAMEPAD_AXIS_RIGHTX), SDL_GetGamepadAxis(pads[i], SDL_GAMEPAD_AXIS_RIGHTY), &a[2], &a[3]);
             if (i == 0) {
                 memcpy(pad_down_live, pdown, sizeof pad_down_live);
                 pad_layout_now = layout;
             }
-        } else if (i == 0) {
-            memset(pad_down_live, 0, sizeof pad_down_live);
-            pad_layout_now = -1;
+        } else {
+            memset(pad_down_arr[i], 0, sizeof pad_down_arr[i]);
+            pad_layout_arr[i] = -1;
+            if (i == 0) {
+                memset(pad_down_live, 0, sizeof pad_down_live);
+                pad_layout_now = -1;
+            }
         }
         pad_buttons_arr[i] = b;
         memcpy(pad_axes_arr[i], a, sizeof a);
@@ -674,7 +686,8 @@ void input_poll_player(int player, uint64_t *buttons, int32_t *lx, int32_t *ly, 
             plat_mutex_lock(&lock);
             start();
             if (pads[player]) {
-                b = pad_buttons_arr[player];
+                b = input_map_pad_buttons_for(input_map_for_player(player), pad_down_arr[player],
+                                              pad_layout_arr[player] >= 0 ? pad_layout_arr[player] : PAD_LAYOUT_XBOX);
                 memcpy(a, pad_axes_arr[player], sizeof a);
             }
             plat_mutex_unlock(&lock);
@@ -692,23 +705,26 @@ void input_poll_player(int player, uint64_t *buttons, int32_t *lx, int32_t *ly, 
     }
     uint64_t b = 0;
     int32_t a[4] = {0};
+    const InputMap *pmap = input_map_for_player(player);
     if (!strcmp(src, "auto") && player > 0 && player < INPUT_MAX_PADS) {
         plat_mutex_lock(&lock);
         start();
         if (pads[player]) {
-            b = pad_buttons_arr[player];
+            b = input_map_pad_buttons_for(pmap, pad_down_arr[player],
+                                          pad_layout_arr[player] >= 0 ? pad_layout_arr[player] : PAD_LAYOUT_XBOX);
             memcpy(a, pad_axes_arr[player], sizeof a);
         }
         plat_mutex_unlock(&lock);
     } else if (!strcmp(src, "keyboard")) {
-        keyboard_read(&b, a);
+        keyboard_read_for(pmap, &b, a);
     } else if (!strncmp(src, "pad:", 4)) {
         int idx = atoi(src + 4);
         if (idx >= 0 && idx < INPUT_MAX_PADS) {
             plat_mutex_lock(&lock);
             start();
             if (pads[idx]) {
-                b = pad_buttons_arr[idx];
+                b = input_map_pad_buttons_for(pmap, pad_down_arr[idx],
+                                              pad_layout_arr[idx] >= 0 ? pad_layout_arr[idx] : PAD_LAYOUT_XBOX);
                 memcpy(a, pad_axes_arr[idx], sizeof a);
             }
             plat_mutex_unlock(&lock);
@@ -831,12 +847,25 @@ int input_pad_label(int p) {
     return lbl;
 }
 
-int input_capture(int reset, int *id_out) {
+static int player_pad_index(int player) {
+    if (player < 0 || player >= INPUT_MAX_PLAYERS) return 0;
+    if (cfg_bool("MTF_MULTIPLAYER_INPUT")) {
+        const char *src = player_cfg_key(player) ? cfg_get(player_cfg_key(player)) : NULL;
+        if (src && !strncmp(src, "pad:", 4)) {
+            int idx = atoi(src + 4);
+            if (idx >= 0 && idx < INPUT_MAX_PADS) return idx;
+        }
+    }
+    return player < INPUT_MAX_PADS ? player : 0;
+}
+
+int input_capture_for(int player, int reset, int *id_out) {
     static uint8_t prev_k[KEY_COUNT], prev_p[PAD_COUNT];
     uint8_t cur_k[KEY_COUNT], cur_p[PAD_COUNT];
     read_key_down(cur_k);
+    int pad_idx = player_pad_index(player);
     plat_mutex_lock(&lock);
-    memcpy(cur_p, pad_down_live, sizeof cur_p);
+    memcpy(cur_p, pads[pad_idx] ? pad_down_arr[pad_idx] : pad_down_live, sizeof cur_p);
     plat_mutex_unlock(&lock);
     if (reset) {
         memcpy(prev_k, cur_k, sizeof prev_k);
@@ -860,4 +889,8 @@ int input_capture(int reset, int *id_out) {
     memcpy(prev_k, cur_k, sizeof prev_k);
     memcpy(prev_p, cur_p, sizeof prev_p);
     return INPUT_CAPTURE_NONE;
+}
+
+int input_capture(int reset, int *id_out) {
+    return input_capture_for(0, reset, id_out);
 }

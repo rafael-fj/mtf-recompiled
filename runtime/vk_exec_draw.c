@@ -2405,8 +2405,8 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
                 if (bad) {
                     static volatile int32_t logged;
                     if (plat_inc32(&logged) <= 4)
-                        rt_log("vk_exec: skipping NV viewport-mask geometry shader (device lacks extension)");
-                    gs = NULL;
+                        rt_log("vk_exec: skipping NV viewport-mask geometry shader draw (device lacks extension)");
+                    return vk_exec_oq_dropped(ex), 0;
                 }
             }
             s.gs = gs;
@@ -2557,7 +2557,7 @@ static int prepare_draw(VkExec *ex, int prim, int32_t count, int restart) {
     // full-screen ones instead). A one-shot draw waits without that budget. Everything else is skipped while its pipeline
     // is built.
     static int shadow_wait = -1, oneshot_budget_ms = -1;
-    if (shadow_wait < 0) shadow_wait = rt_knob("SHADOW_WAIT", "1");
+    if (shadow_wait < 0) shadow_wait = rt_knob("SHADOW_WAIT", "0");
     if (oneshot_budget_ms < 0) oneshot_budget_ms = rt_knob("ONESHOT_BUDGET_MS", "16");
     int depth_only = ex->pass_ncolor == 0 && ex->depth.image != 0;
     uint64_t *wait_frame_p = &dc_cur()->wait_frame, *wait_left_p = &dc_cur()->wait_left_ns;

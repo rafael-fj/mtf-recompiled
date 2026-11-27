@@ -63,7 +63,9 @@ typedef struct InputMap {
 } InputMap;
 
 // The tables in effect. Defaults are the layout in docs/controls.md; input_map_reset restores them.
-extern InputMap input_map;
+extern InputMap input_maps[4];
+#define input_map (input_maps[0])
+const InputMap *input_map_for_player(int player);
 
 void input_map_reset(void);
 // The script and totk.ini names, any case when parsed; NULL for an id without one. Actions: A B X Y LCLICK RCLICK L R ZL
@@ -78,7 +80,8 @@ const char *input_pad_name(int pad);
 // layout; pad:default keeps each layout's own button. Stick directions take keys only. Invalid entries are logged and
 // skipped; when none is valid the action keeps its bindings. 1 when applied.
 int input_map_bind(const char *button, const char *list);
-// Applies the TOTK_BIND_<action> settings (cfg_get) over the defaults: at start, and again when one of them changes.
+int input_map_bind_map(InputMap *m, const char *button, const char *list);
+// Applies the TOTK_BIND_<action> (and MTF_P2_BIND_*, MTF_P3_BIND_*, MTF_P4_BIND_*) settings over the defaults.
 void input_map_configure(void);
 
 // The layout for a TOTK_PAD_LAYOUT value: "nintendo" or "xbox" (any case); "xbox_prompts" is the Nintendo layout with
@@ -88,13 +91,17 @@ void input_map_configure(void);
 int input_pad_layout_pick(const char *setting, int east_labelled_a);
 // down[pad] != 0 for the gamepad inputs held. Returns the Switch button bits (0..15) the layout's pad table presses.
 uint64_t input_map_pad_buttons(const uint8_t down[PAD_COUNT], int layout);
+uint64_t input_map_pad_buttons_for(const InputMap *m, const uint8_t down[PAD_COUNT], int layout);
 
 // down[key] != 0 for the keys held. Returns the Switch button bits (0..15) the table presses.
 uint64_t input_map_buttons(const uint8_t down[KEY_COUNT]);
+uint64_t input_map_buttons_for(const InputMap *m, const uint8_t down[KEY_COUNT]);
 int input_map_shake(const uint8_t down[KEY_COUNT]);
+int input_map_shake_for(const InputMap *m, const uint8_t down[KEY_COUNT]);
 // out = x, y of the stick (0 left, 1 right) from its four direction actions; up is +y; a diagonal is scaled to the
 // unit circle.
 void input_map_stick(const uint8_t down[KEY_COUNT], int stick, int32_t out[2]);
+void input_map_stick_for(const InputMap *m, const uint8_t down[KEY_COUNT], int stick, int32_t out[2]);
 // Mouse motion in raw counts over dt_s seconds to right-stick deflection: full deflection at 3000 / sens counts/s.
 // Clamped to the unit circle, up (negative dy) is +y.
 void input_mouse_stick(int32_t dx, int32_t dy, double dt_s, float sens, int32_t out[2]);

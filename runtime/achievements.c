@@ -164,10 +164,12 @@ static int bitfield_ready(void) {
     return plat_mem_readable(MTF_UNLOCK_BITFIELD_VA, MTF_UNLOCK_BITFIELD_SIZE);
 }
 
-static int has_any_bit(const uint8_t *mem) {
-    for (size_t i = 0; i < MTF_UNLOCK_BITFIELD_SIZE; i++)
-        if (mem[i]) return 1;
-    return 0;
+static int unlock_bitfield_populated(const uint8_t *mem) {
+    int ch = 0, ch_tot = 0, rk = 0, rk_tot = 0, ct = 0, ct_tot = 0;
+    count_ranges(mem, kCheatCharRanges, sizeof kCheatCharRanges / sizeof *kCheatCharRanges, &ch, &ch_tot);
+    count_ranges(mem, kCheatRacketRanges, sizeof kCheatRacketRanges / sizeof *kCheatRacketRanges, &rk, &rk_tot);
+    count_ranges(mem, kCheatCourtRanges, sizeof kCheatCourtRanges / sizeof *kCheatCourtRanges, &ct, &ct_tot);
+    return ch > 0 && rk > 0 && ct > 0;
 }
 
 void achievements_tick(void) {
@@ -182,9 +184,9 @@ void achievements_tick(void) {
     const uint8_t *mem = (const uint8_t *)(uintptr_t)MTF_UNLOCK_BITFIELD_VA;
     uint64_t tick = ++g_tick;
     if (!g_save_hydrated) {
-        if (!has_any_bit(mem)) return;
+        if (!unlock_bitfield_populated(mem)) return;
         g_save_hydrated = 1;
-        g_settle_until = tick + 60;
+        g_settle_until = tick + 120;
         memcpy(g_prev_bits, mem, MTF_UNLOCK_BITFIELD_SIZE);
         return;
     }

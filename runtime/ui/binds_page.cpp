@@ -29,7 +29,7 @@ static const int kMove[] = {B_SL_UP, B_SL_DOWN, B_SL_LEFT, B_SL_RIGHT};
 static const int kCamera[] = {B_SR_UP, B_SR_DOWN, B_SR_LEFT, B_SR_RIGHT};
 
 static struct {
-    int action = -1, cell;
+    int action = -1, cell, player = 0;
     bool reset;
     uint64_t start, done;
 } g_cap;
@@ -96,10 +96,15 @@ static int shown_layout(void) {
     return l >= 0 ? l : input_pad_layout_pick(cfg_value("MTF_PAD_LAYOUT"), 0);
 }
 
-static void write_lines(const InputMap *m) {
+static void bind_cfg_name(int player, int action, char *out, size_t n, bool with_prefix) {
+    if (player <= 0) snprintf(out, n, "%sBIND_%s", with_prefix ? "MTF_" : "", input_action_name(action));
+    else snprintf(out, n, "%sP%d_BIND_%s", with_prefix ? "MTF_" : "", player + 1, input_action_name(action));
+}
+
+static void write_lines(int player, const InputMap *m) {
     for (int a = 0; a < ACTION_COUNT; a++) {
-        char var[40], line[256];
-        snprintf(var, sizeof var, "MTF_BIND_%s", input_action_name(a));
+        char var[48], line[256];
+        bind_cfg_name(player, a, var, sizeof var, true);
         input_map_line(m, a, line, sizeof line);
         const char *now = cfg_get(var);
         if (!strcmp(line, now ? now : "")) continue;
@@ -109,7 +114,7 @@ static void write_lines(const InputMap *m) {
             const char *k = var + 4;
             cfg_reset(&k, 1);
         }
-        rt_log("menu: bind_%s = %s", input_action_name(a), line[0] ? line : "(default)");
+        rt_log("menu: %s = %s", var + 4, line[0] ? line : "(default)");
     }
     opt_save_soon();
 }
@@ -120,8 +125,8 @@ static void set_note(int action, UiTextId fmt, const char *a, const char *b) {
     g_note_until = plat_now_ns() + 5000000000ull;
 }
 
-static void change(int action, int cell, int id) {
-    InputMap m = input_map;
+static void change(int player, int action, int cell, int id) {
+    InputMap m = *input_map_for_player(player);
     char buf[48];
     if (cell < 2) {
         int lost = input_map_set_key(&m, action, cell, id);
@@ -130,23 +135,23 @@ static void change(int action, int cell, int id) {
         int other = input_map_set_pad(&m, action, shown_layout(), id);
         if (other >= 0) set_note(action, UI_BINDS_SWAPPED, action_label(action), action_label(other));
     }
-    write_lines(&m);
+    write_lines(player, &m);
 }
 
-static void reset_binds(void) {
-    char names[ACTION_COUNT][32];
+static void reset_binds(int player) {
+    char names[ACTION_COUNT][40];
     const char *keys[ACTION_COUNT];
     for (int a = 0; a < ACTION_COUNT; a++) {
-        snprintf(names[a], sizeof names[a], "BIND_%s", input_action_name(a));
+        bind_cfg_name(player, a, names[a], sizeof names[a], false);
         keys[a] = names[a];
     }
     int n = cfg_reset(keys, ACTION_COUNT);
     opt_save_soon();
     g_note_action = -1;
-    rt_log("menu: reset %d button bindings", n);
+    rt_log("menu: reset %d button bindings (P%d)", n, player + 1);
 }
 
-static void row_action(int a, const InputMap &m, int layout, bool controller) {
+static void row_action(int player, int a, const InputMap &m, int layout, bool controller) {
     char b0[48], b1[48];
     const char *cells[3] = {};
     if (controller) {
@@ -158,8 +163,8 @@ static void row_action(int a, const InputMap &m, int layout, bool controller) {
         if (count > 0) cells[0] = key_label(keys[0], b0, sizeof b0);
         if (count > 1) cells[1] = key_label(keys[1], b1, sizeof b1);
     }
-    char key[32];
-    snprintf(key, sizeof key, "BIND_%s", input_action_name(a));
+    char key[48];
+    snprintf(key, sizeof key, "BIND_P%d_%s", player + 1, input_action_name(a));
     const char *note = g_note_action == a && plat_now_ns() < g_note_until ? g_note : nullptr;
     const bool enabled[3] = {true, true, a < B_SL_LEFT};
     int r = opt_bind_row(key, action_label(a), action_desc(a), cells, enabled, controller, note);
@@ -167,11 +172,12 @@ static void row_action(int a, const InputMap &m, int layout, bool controller) {
     if (r < 3) {
         g_cap.action = a;
         g_cap.cell = r;
+        g_cap.player = player;
         g_cap.reset = true;
         g_cap.start = plat_now_ns();
         g_cap.done = 0;
     } else {
-        change(a, r - 10, 0);
+        change(player, a, r - 10, 0);
     }
 }
 
@@ -181,10 +187,10 @@ static void capture_window(void) {
     uint64_t now = plat_now_ns();
     bool pad_cell = g_cap.cell == 2;
     if (!g_cap.done) {
-        int id = 0, got = input_capture(g_cap.reset, &id);
+        int id = 0, got = input_capture_for(g_cap.player, g_cap.reset, &id);
         g_cap.reset = false;
-        if (got == INPUT_CAPTURE_KEY && !pad_cell) change(g_cap.action, g_cap.cell, id);
-        if (got == INPUT_CAPTURE_PAD && pad_cell) change(g_cap.action, g_cap.cell, id);
+        if (got == INPUT_CAPTURE_KEY && !pad_cell) change(g_cap.player, g_cap.action, g_cap.cell, id);
+        if (got == INPUT_CAPTURE_PAD && pad_cell) change(g_cap.player, g_cap.action, g_cap.cell, id);
         if (got != INPUT_CAPTURE_NONE && !(got == INPUT_CAPTURE_KEY && pad_cell)) g_cap.done = now;
         if (now - g_cap.start > CAPTURE_SECONDS * 1000000000ull) g_cap.done = now;
     }
@@ -200,7 +206,7 @@ static void capture_window(void) {
         if (g_cap.done && now - g_cap.done > kDoneNs) {
             ImGui::CloseCurrentPopup();
             char id[48];
-            snprintf(id, sizeof id, "BIND_%s#%d", input_action_name(g_cap.action), g_cap.cell);
+            snprintf(id, sizeof id, "BIND_P%d_%s#%d", g_cap.player + 1, input_action_name(g_cap.action), g_cap.cell);
             opt_focus_key(id);
             g_cap.action = -1;
         }
@@ -210,28 +216,35 @@ static void capture_window(void) {
 
 bool binds_modal(void) { return g_cap.action >= 0; }
 
-static bool g_reset_asked;
+static int g_reset_player = -1;
 
-void binds_rows(float scale, bool controller) {
-    InputMap m = input_map;
+void binds_rows_player(float scale, bool controller, int player) {
+    if (player < 0 || player >= 4) player = 0;
+    InputMap m = *input_map_for_player(player);
     int layout = controller ? shown_layout() : 0;
     opt_group(UI_BINDS_GROUP_BUTTONS);
     opt_text(controller ? UI_BINDS_HELP_PAD : UI_BINDS_HELP_KEYS);
     if (!controller) opt_bind_key_header();
-    for (int a : kButtons) row_action(a, m, layout, controller);
+    for (int a : kButtons) row_action(player, a, m, layout, controller);
     if (!controller) {
-        row_action(B_SHAKE, m, layout, false);
+        row_action(player, B_SHAKE, m, layout, false);
         opt_group(UI_BINDS_GROUP_MOVE);
-        for (int a : kMove) row_action(a, m, layout, false);
+        for (int a : kMove) row_action(player, a, m, layout, false);
         opt_group(UI_BINDS_GROUP_CAMERA);
-        for (int a : kCamera) row_action(a, m, layout, false);
+        for (int a : kCamera) row_action(player, a, m, layout, false);
     }
     ImGui::Dummy(ImVec2(0, 6 * scale));
-    g_reset_asked = opt_button("##binds_reset", UI_BINDS_RESET, UI_BINDS_RESET_DESC);
+    char reset_id[32];
+    snprintf(reset_id, sizeof reset_id, "##binds_reset_p%d_%s", player + 1, controller ? "pad" : "kb");
+    if (opt_button(reset_id, UI_BINDS_RESET, UI_BINDS_RESET_DESC)) g_reset_player = player;
+}
+
+void binds_rows(float scale, bool controller) {
+    binds_rows_player(scale, controller, 0);
 }
 
 void binds_after_page(void) {
-    if (g_reset_asked && g_cap.action < 0) reset_binds();
-    g_reset_asked = false;
+    if (g_reset_player >= 0 && g_cap.action < 0) reset_binds(g_reset_player);
+    g_reset_player = -1;
     capture_window();
 }

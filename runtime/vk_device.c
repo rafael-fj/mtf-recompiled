@@ -538,13 +538,12 @@ int vk_init(void) {
         memset(&g_vk, 0, sizeof g_vk);
         if (create_instance() && pick_device() && create_device()) {
             g_ready = 1, vk_headroom_start(), vk_dlaa_init(), apply_recommended_preset();
-            g_vk.use_multi_viewport_shadows =
-                !g_vk.has_viewport_array2 && g_vk.has_multi_viewport && cfg_int("MTF_SHADOW_SCALE") >= 2;
+            g_vk.use_multi_viewport_shadows = !g_vk.has_viewport_array2 && g_vk.has_multi_viewport;
             if (!g_vk.has_viewport_array2)
                 rt_log("vk: no VK_NV_viewport_array2: %s",
                        g_vk.use_multi_viewport_shadows
-                           ? "lowering ViewportMaskNV shadow cascades via MultiViewport (SHADOW_SCALE >= 2)"
-                           : "shadow cascades past the first stay empty (SHADOW_SCALE=1 / Low mode)");
+                           ? "lowering ViewportMaskNV shadow cascades via MultiViewport"
+                           : "shadow cascades past the first stay empty (no multiViewport)");
         } else {
             destroy_all();
         }

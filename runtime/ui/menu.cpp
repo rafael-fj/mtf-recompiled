@@ -815,18 +815,18 @@ static void row_mp_player(int player, const char *key, UiTextId label, const Inp
 }
 
 static void tab_controls(float scale) {
-    if (ImGui::BeginTabBar("##controls_sub", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
-        char controller[64], keyboard[64];
-        snprintf(controller, sizeof controller, "  %s  ###ctrl_pad", menu_text(UI_MENU_CONTROLLER));
-        snprintf(keyboard, sizeof keyboard, "  %s  ###ctrl_kb", menu_text(UI_MENU_KEYBOARD));
-        if (ImGui::BeginTabItem(controller)) {
-            opt_begin("##controls_pad", scale);
+    InputPadList pads;
+    input_list_pads(&pads);
+    if (ImGui::BeginTabBar("##controls_players", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
+        char general[64];
+        snprintf(general, sizeof general, "  %s  ###ctrl_general", menu_text(UI_MENU_GENERAL));
+        if (ImGui::BeginTabItem(general)) {
+            opt_begin("##controls_general", scale);
             opt_group(UI_MENU_MP_INPUT);
             if (opt_toggle("MTF_MULTIPLAYER_INPUT", UI_MENU_MP_INPUT, UI_MENU_MP_INPUT_DESC))
-                rt_log("input: multiplayer input %s (F1 -> Controls)", cfg_bool("MTF_MULTIPLAYER_INPUT") ? "on" : "off");
+                rt_log("input: multiplayer input %s (F1 -> Controls)",
+                       cfg_bool("MTF_MULTIPLAYER_INPUT") ? "on" : "off");
             if (cfg_bool("MTF_MULTIPLAYER_INPUT")) {
-                InputPadList pads;
-                input_list_pads(&pads);
                 row_mp_player(0, "MTF_P1_INPUT", UI_MENU_MP_P1, pads);
                 row_mp_player(1, "MTF_P2_INPUT", UI_MENU_MP_P2, pads);
                 row_mp_player(2, "MTF_P3_INPUT", UI_MENU_MP_P3, pads);
@@ -836,22 +836,42 @@ static void tab_controls(float scale) {
             static const UiTextId layout[] = {UI_MENU_PAD_LAYOUT_AUTO, UI_MENU_PAD_LAYOUT_POSITIONAL};
             opt_choice("MTF_PAD_LAYOUT", UI_MENU_PAD_LAYOUT, layout, 2, UI_MENU_PAD_LAYOUT_DESC);
             static const UiTextId icons[] = {UI_MENU_BUTTON_ICONS_AUTO, UI_MENU_BUTTON_ICONS_NINTENDO,
-                                             UI_MENU_BUTTON_ICONS_XBOX, UI_MENU_BUTTON_ICONS_PS, UI_MENU_BUTTON_ICONS_KB};
+                                             UI_MENU_BUTTON_ICONS_XBOX, UI_MENU_BUTTON_ICONS_PS,
+                                             UI_MENU_BUTTON_ICONS_KB};
             opt_choice("MTF_BUTTON_ICONS", UI_MENU_BUTTON_ICONS, icons, 5, UI_MENU_BUTTON_ICONS_DESC);
             opt_toggle("MTF_MOTION", UI_MENU_MOTION, UI_MENU_MOTION_DESC);
-            opt_slider("MTF_RUMBLE_STRENGTH", UI_MENU_RUMBLE_STRENGTH, 0, 300, UI_MENU_RUMBLE_STRENGTH_DESC, 10, "%.0f %%");
-            opt_slider("MTF_RUMBLE_CURVE", UI_MENU_RUMBLE_CURVE, 0.2f, 1.5f, UI_MENU_RUMBLE_CURVE_DESC, 0.05f, "%.2f");
+            opt_slider("MTF_RUMBLE_STRENGTH", UI_MENU_RUMBLE_STRENGTH, 0, 300,
+                       UI_MENU_RUMBLE_STRENGTH_DESC, 10, "%.0f %%");
+            opt_slider("MTF_RUMBLE_CURVE", UI_MENU_RUMBLE_CURVE, 0.2f, 1.5f,
+                       UI_MENU_RUMBLE_CURVE_DESC, 0.05f, "%.2f");
             opt_group(UI_MENU_GROUP_STICKS);
-            opt_slider("MTF_STICK_DEADZONE", UI_MENU_STICK_DEADZONE, 0, 50, UI_MENU_STICK_DEADZONE_DESC, 1, "%.0f %%");
-            binds_rows(scale, true);
+            opt_slider("MTF_STICK_DEADZONE", UI_MENU_STICK_DEADZONE, 0, 50,
+                       UI_MENU_STICK_DEADZONE_DESC, 1, "%.0f %%");
             opt_end();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem(keyboard)) {
-            opt_begin("##controls_kb", scale);
-            binds_rows(scale, false);
-            opt_end();
-            ImGui::EndTabItem();
+        static const UiTextId p_labels[4] = {UI_MENU_MP_P1, UI_MENU_MP_P2, UI_MENU_MP_P3, UI_MENU_MP_P4};
+        static const char *const p_keys[4] = {"MTF_P1_INPUT", "MTF_P2_INPUT", "MTF_P3_INPUT", "MTF_P4_INPUT"};
+        for (int p = 0; p < INPUT_MAX_PLAYERS; p++) {
+            if (p > 0 && !input_player_connected(p)) continue;
+            char ptab[64];
+            snprintf(ptab, sizeof ptab, "  %s  ###ctrl_p%d", menu_text(p_labels[p]), p + 1);
+            if (ImGui::BeginTabItem(ptab)) {
+                bool use_pad = true;
+                if (cfg_bool("MTF_MULTIPLAYER_INPUT")) {
+                    const char *src = cfg_get(p_keys[p]);
+                    if (src && !strcmp(src, "keyboard")) use_pad = false;
+                    else if ((!src || !*src || !strcmp(src, "auto")) && p == 0) use_pad = pads.connected[0] != 0;
+                } else if (p == 0) {
+                    use_pad = pads.connected[0] != 0;
+                }
+                char page_id[32];
+                snprintf(page_id, sizeof page_id, "##controls_p%d_%s", p + 1, use_pad ? "pad" : "kb");
+                opt_begin(page_id, scale);
+                binds_rows_player(scale, use_pad, p);
+                opt_end();
+                ImGui::EndTabItem();
+            }
         }
         ImGui::EndTabBar();
     }

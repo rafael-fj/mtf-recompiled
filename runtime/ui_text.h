@@ -310,6 +310,7 @@ typedef enum {
     UI_MENU_AFTER_RESTART,
     UI_MENU_DEFAULT_MARK,
     // Controls sub-tabs and remapping (ui/binds_page.cpp)
+    UI_MENU_GENERAL,
     UI_MENU_CONTROLLER,
     UI_MENU_KEYBOARD,
     UI_BINDS_GROUP_BUTTONS,

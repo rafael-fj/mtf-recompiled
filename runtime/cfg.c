@@ -171,15 +171,21 @@ static CfgMeta metas[] = {
     {"STREAM_CODEC", "auto", "auto|av1|h264|vp8", LIVE},
     {"P1_INPUT", NULL, NULL, LIVE}, {"P2_INPUT", NULL, NULL, LIVE},
     {"P3_INPUT", NULL, NULL, LIVE}, {"P4_INPUT", NULL, NULL, LIVE},
-    {"BIND_A", "", NULL, LIVE}, {"BIND_B", "", NULL, LIVE}, {"BIND_X", "", NULL, LIVE}, {"BIND_Y", "", NULL, LIVE},
-    {"BIND_LCLICK", "", NULL, LIVE}, {"BIND_RCLICK", "", NULL, LIVE}, {"BIND_L", "", NULL, LIVE}, {"BIND_R", "", NULL, LIVE},
-    {"BIND_ZL", "", NULL, LIVE}, {"BIND_ZR", "", NULL, LIVE}, {"BIND_PLUS", "", NULL, LIVE}, {"BIND_MINUS", "", NULL, LIVE},
-    {"BIND_LEFT", "", NULL, LIVE}, {"BIND_UP", "", NULL, LIVE}, {"BIND_RIGHT", "", NULL, LIVE}, {"BIND_DOWN", "", NULL, LIVE},
-    {"BIND_LSTICK_LEFT", "", NULL, LIVE}, {"BIND_LSTICK_UP", "", NULL, LIVE},
-    {"BIND_LSTICK_RIGHT", "", NULL, LIVE}, {"BIND_LSTICK_DOWN", "", NULL, LIVE},
-    {"BIND_RSTICK_LEFT", "", NULL, LIVE}, {"BIND_RSTICK_UP", "", NULL, LIVE},
-    {"BIND_RSTICK_RIGHT", "", NULL, LIVE}, {"BIND_RSTICK_DOWN", "", NULL, LIVE},
-    {"BIND_SHAKE", "", NULL, LIVE},
+#define PLAYER_BINDS(pfx) \
+    {pfx "BIND_A", "", NULL, LIVE}, {pfx "BIND_B", "", NULL, LIVE}, {pfx "BIND_X", "", NULL, LIVE}, {pfx "BIND_Y", "", NULL, LIVE}, \
+    {pfx "BIND_LCLICK", "", NULL, LIVE}, {pfx "BIND_RCLICK", "", NULL, LIVE}, {pfx "BIND_L", "", NULL, LIVE}, {pfx "BIND_R", "", NULL, LIVE}, \
+    {pfx "BIND_ZL", "", NULL, LIVE}, {pfx "BIND_ZR", "", NULL, LIVE}, {pfx "BIND_PLUS", "", NULL, LIVE}, {pfx "BIND_MINUS", "", NULL, LIVE}, \
+    {pfx "BIND_LEFT", "", NULL, LIVE}, {pfx "BIND_UP", "", NULL, LIVE}, {pfx "BIND_RIGHT", "", NULL, LIVE}, {pfx "BIND_DOWN", "", NULL, LIVE}, \
+    {pfx "BIND_LSTICK_LEFT", "", NULL, LIVE}, {pfx "BIND_LSTICK_UP", "", NULL, LIVE}, \
+    {pfx "BIND_LSTICK_RIGHT", "", NULL, LIVE}, {pfx "BIND_LSTICK_DOWN", "", NULL, LIVE}, \
+    {pfx "BIND_RSTICK_LEFT", "", NULL, LIVE}, {pfx "BIND_RSTICK_UP", "", NULL, LIVE}, \
+    {pfx "BIND_RSTICK_RIGHT", "", NULL, LIVE}, {pfx "BIND_RSTICK_DOWN", "", NULL, LIVE}, \
+    {pfx "BIND_SHAKE", "", NULL, LIVE}
+    PLAYER_BINDS(""),
+    PLAYER_BINDS("P2_"),
+    PLAYER_BINDS("P3_"),
+    PLAYER_BINDS("P4_"),
+#undef PLAYER_BINDS
     {"MOTION", NULL, "0|1", LIVE},
     {"RUMBLE_STRENGTH", "100", "0..300", LIVE}, {"RUMBLE_CURVE", "1", "0.2..1.5", LIVE},
     {"STICK_DEADZONE", NULL, "0..50", LIVE},
