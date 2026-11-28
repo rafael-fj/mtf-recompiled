@@ -144,15 +144,15 @@ def make_windows_zip(version: str, out_dir: Path, setup_path: Path, bundle_dir: 
 
 
 def make_runtime_zip(version: str, out_dir: Path, bundle_dir: Path | None = None) -> Path | None:
-    """Package mtf-internal-ingame-rt-v<version>-win64.zip for fast in-game runtime updates (~12 MB)."""
+    """Package internal-updater-v<version>-win64.zip for fast in-game runtime updates (~12 MB)."""
     if bundle_dir is None:
         return None
     rt_exe = bundle_dir / "deps" / "bin" / "mtf-recomp.exe"
     upd_exe = bundle_dir / "deps" / "bin" / "mtf-updater.exe"
     if not rt_exe.is_file():
         return None
-    rt_zip = out_dir / f"mtf-internal-ingame-rt-v{version}-win64.zip"
-    top = Path(f"mtf-internal-ingame-rt-v{version}-win64")
+    rt_zip = out_dir / f"internal-updater-v{version}-win64.zip"
+    top = Path(f"internal-updater-v{version}-win64")
     if rt_zip.exists():
         rt_zip.unlink()
     manifest = f'{{\n  "version": "{version}",\n  "game_abi": 1,\n  "runtime_only": true\n}}\n'
