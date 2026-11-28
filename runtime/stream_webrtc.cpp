@@ -261,7 +261,7 @@ int webrtc_peer_is_open(int slot) {
 
 int webrtc_broadcast_media(const uint8_t *data, size_t len) {
     if (!data || !len) return 0;
-    const bool is_video_delta = (len >= 2 && data[0] == 1 && data[1] == 0);
+    const bool is_video_delta = (len >= 2 && data[0] == 1 && (data[1] & 1) == 0);
     std::shared_ptr<rtc::DataChannel> dcs[kMaxPeers];
     {
         std::lock_guard<std::mutex> lk(g_mtx);

@@ -265,8 +265,20 @@ static int ws_broadcast_bin(const uint8_t *payload, size_t len) {
                 dropped = 1;
                 continue;
             }
+        } else if (len >= 2 && payload[0] == 1) {
+            // Keyframes: wait briefly for socket writability instead of blocking up to SO_SNDTIMEO and killing the link.
+            fd_set wfds;
+            struct timeval tv = {0, 50000};
+            FD_ZERO(&wfds);
+            FD_SET(g_clients[i].sock, &wfds);
+            if (select(0, NULL, &wfds, NULL, &tv) <= 0 || !FD_ISSET(g_clients[i].sock, &wfds)) {
+                dropped = 1;
+                continue;
+            }
         }
         if (sock_send_all(g_clients[i].sock, hdr, hlen) < 0 || sock_send_all(g_clients[i].sock, payload, len) < 0) {
+            int err = WSAGetLastError();
+            rt_log("stream: Player %d send failed (err=%d), closing socket", i + 2, err);
             closesocket(g_clients[i].sock);
             g_clients[i].sock = INVALID_SOCKET;
             g_clients[i].active = 0;
@@ -345,16 +357,23 @@ static const char k_html_page[] =
 "if(!actx)actx=new AudioContext({sampleRate:48000,latencyHint:'interactive'});"
 "if(actx.state==='suspended')await actx.resume();"
 "audioOn=!audioOn;document.getElementById('btnAudio').textContent='Audio: '+(audioOn?'On':'Off');nextPlayTime=0;};"
-"function codecStr(c){return c===2?'av01.0.04M.08':c===1?'avc1.42E01F':'vp8';}"
+"function codecStr(c){return c===2?'av01.0.08M.08':c===1?'avc1.42E01F':'vp8';}"
+"let capAv1=false,capH264=false,vdecErrs=0;"
 "function initVideoDecoder(c){"
 "if(vdec)try{vdec.close()}catch(_){}"
+"if(c!==vdecCodec)vdecErrs=0;"
 "vdecCodec=c;needKf=true;"
 "vdec=new VideoDecoder({output:f=>{"
+"vdecErrs=0;"
 "const vr=f.visibleRect||{x:0,y:0,width:f.displayWidth,height:f.displayHeight};"
 "const sw=vr.width||f.displayWidth,sh=vr.height||f.displayHeight;"
 "if(cropMode===0){if(cv.width!==sw||cv.height!==sh){cv.width=sw;cv.height=sh;}ctx.drawImage(f,vr.x,vr.y,sw,sh,0,0,sw,sh);}"
 "else{const hw=(sw/2)|0,sx=vr.x+(cropMode===1?(sw-hw):0);if(cv.width!==hw||cv.height!==sh){cv.width=hw;cv.height=sh;}ctx.drawImage(f,sx,vr.y,hw,sh,0,0,hw,sh);}"
-"f.close();},error:e=>{console.error('vdec',e);setTimeout(()=>{initVideoDecoder(vdecCodec);if(ws&&ws.readyState===1)ws.send('{\"type\":\"kf\"}');},50);}});"
+"f.close();},error:e=>{console.error('vdec',e);vdecErrs++;"
+"if(vdecCodec!==0&&vdecErrs>=2&&ws&&ws.readyState===1){"
+"if(vdecCodec===2)capAv1=false;else if(vdecCodec===1)capH264=false;"
+"vdecErrs=0;ws.send(JSON.stringify({type:'caps',av1:capAv1,h264:capH264}));return;}"
+"setTimeout(()=>{initVideoDecoder(vdecCodec);if(ws&&ws.readyState===1)ws.send('{\"type\":\"kf\"}');},50);}});"
 "vdec.configure({codec:codecStr(c),optimizeForLatency:true,colorSpace:{primaries:'bt709',transfer:'iec61966-2-1',matrix:'bt470bg',fullRange:true}});"
 "}"
 "function initDecoders(){"
@@ -409,8 +428,10 @@ static const char k_html_page[] =
 "ws=curWs;ws.binaryType='arraybuffer';"
 "ws.onopen=async()=>{statEl.textContent='Connected (waiting frames...)';"
 "let av1=false,h264=false;"
-"if(!/Firefox/i.test(navigator.userAgent))try{av1=(await VideoDecoder.isConfigSupported({codec:'av01.0.04M.08',optimizeForLatency:true})).supported;}catch(_){}"
-"try{h264=(await VideoDecoder.isConfigSupported({codec:'avc1.42E01F',optimizeForLatency:true})).supported;}catch(_){}"
+"const cs={primaries:'bt709',transfer:'iec61966-2-1',matrix:'bt470bg',fullRange:true};"
+"if(!/Firefox/i.test(navigator.userAgent))try{av1=(await VideoDecoder.isConfigSupported({codec:'av01.0.08M.08',optimizeForLatency:true,colorSpace:cs})).supported;}catch(_){}"
+"try{h264=(await VideoDecoder.isConfigSupported({codec:'avc1.42E01F',optimizeForLatency:true,colorSpace:cs})).supported;}catch(_){}"
+"capAv1=av1;capH264=h264;"
 "if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'caps',av1,h264}));};"
 "ws.onclose=e=>{if(ws!==curWs)return;statEl.textContent='Disconnected ('+(e.reason||e.code)+') - reconnecting...';setTimeout(()=>{if(ws===curWs)connect();},1500);};"
 "ws.onmessage=async ev=>{"

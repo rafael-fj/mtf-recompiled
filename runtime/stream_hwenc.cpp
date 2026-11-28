@@ -309,6 +309,12 @@ int stream_hwenc_encode(const uint8_t *nv12, int w, int h, int force_kf,
     g_frame_idx++;
 
     HRESULT hr = g_mft->ProcessInput(0, in_sample, 0);
+    if (hr == MF_E_NOTACCEPTING && drain_output(out_buf, out_len, out_kf)) {
+        hr = g_mft->ProcessInput(0, in_sample, 0);
+        in_mb->Release();
+        in_sample->Release();
+        return 1;
+    }
     in_mb->Release();
     in_sample->Release();
     if (FAILED(hr)) return 0;
