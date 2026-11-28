@@ -150,7 +150,8 @@ static void find_windows_asset(const char *json, char *dl_url, size_t dl_cap, ui
     while ((cur = strstr(cur, "\"browser_download_url\"")) != NULL) {
         char candidate[512] = {0};
         if (json_str_field(cur, "browser_download_url", candidate, sizeof candidate)) {
-            int is_runtime = strstr(candidate, "MTF-Runtime-") && strstr(candidate, "Windows-x64.zip");
+            int is_runtime = (strstr(candidate, "mtf-internal-ingame-rt-") && strstr(candidate, "-win64.zip")) ||
+                             (strstr(candidate, "MTF-Runtime-") && strstr(candidate, "Windows-x64.zip"));
             int is_full = strstr(candidate, "Windows-x64.zip") && !is_runtime;
             if (is_runtime || is_full) {
                 const char *back = cur - json > 1024 ? cur - 1024 : json;

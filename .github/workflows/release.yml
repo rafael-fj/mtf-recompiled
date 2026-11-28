@@ -93,7 +93,7 @@ jobs:
           generate_release_notes: true
           files: |
             build/release/MTF-Recomp-v*-Windows-x64.zip
-            build/release/MTF-Runtime-v*-Windows-x64.zip
+            build/release/mtf-internal-ingame-rt-v*-win64.zip
             build/release/mtf-recomp-*-src.zip
 
   build-linux-experimental:
