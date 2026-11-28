@@ -156,6 +156,7 @@ typedef struct DrawCtx {
         VkDescriptorSet ds_bound[2];
         VkDescriptorSet ds_last[2];
         VkDescriptorSetLayout ds_last_layout[2];
+        VkDescriptorSetLayout ds_push_layout[2];
         int ds_pushed[2];
         int res_valid;
     } B;
@@ -2026,8 +2027,9 @@ static void bind_resources(VkExec *ex, const VkPipeInfo *info) {
             continue;
         }
         if (s ? info->push1 : info->push) {
+            VkDescriptorSetLayout sl = s ? info->set_layout1 : info->set_layout;
             uint32_t n = gfx && push_skip_on() ? dbytes : 0;
-            if (n && B.ds_pushed[s] && DS.pn[s] == n && !memcmp(DS.psig[s], ds, n)) {
+            if (n && B.ds_pushed[s] && B.ds_push_layout[s] == sl && DS.pn[s] == n && !memcmp(DS.psig[s], ds, n)) {
                 BS.push_skip++;
                 continue;
             }
@@ -2036,7 +2038,7 @@ static void bind_resources(VkExec *ex, const VkPipeInfo *info) {
             BS.push++;
             RS.cmds++;
             if (gfx) {
-                B.ds_bound[s] = VK_NULL_HANDLE, B.ds_pushed[s] = n != 0;
+                B.ds_bound[s] = VK_NULL_HANDLE, B.ds_pushed[s] = n != 0, B.ds_push_layout[s] = sl;
                 if (n) DS.pn[s] = n, memcpy(DS.psig[s], ds, n);
             }
         } else if (!gfx || s > 1) {
