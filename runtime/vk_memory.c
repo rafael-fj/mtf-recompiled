@@ -733,6 +733,9 @@ int vk_mem_changed(uint64_t addr, uint64_t size, uint32_t since, uint32_t *now) 
 static uint32_t snap_at[SNAP_REGIONS];      // epoch of the region's last snapshot; 0 never
 static uint8_t snap_untracked[SNAP_REGIONS];
 static uint64_t n_snap_checks, n_snap_calls, n_snap_untracked;
+#define HOT_SNAP_CAP 512
+static uint32_t hot_snap[HOT_SNAP_CAP];
+static int nhot_snap;
 
 // gen_lock held exclusively. Queries the regions r0..r1 that were not snapped in epoch, one query per run of them;
 // returns the number of queries.
@@ -753,7 +756,15 @@ static uint64_t snap_regions(uint64_t r0, uint64_t r1, uint32_t epoch) {
         if (!g) g = ++gen_now;
         for (;;) {
             uint64_t n = ww_query(a, b - a);
-            if (n == UINT64_MAX) { tracked = 0; break; }
+            if (n == UINT64_MAX) {
+                if (k > r) {   // gap between pools hit an unmapped hole: fall back to the single region r
+                    k = r;
+                    b = (k + 1) << SNAP_SHIFT;
+                    continue;
+                }
+                tracked = 0;
+                break;
+            }
             for (uint64_t j = 0; j < n; j++) stamp_page(gen_pages[j], g);
             if (n < sizeof gen_pages / sizeof *gen_pages) break;
         }
@@ -785,6 +796,8 @@ int vk_mem_changed_snap(uint64_t addr, uint64_t size, uint32_t since, uint32_t e
         plat_mutex_unlock_shared(&gen_lock);
         plat_mutex_lock(&gen_lock);
         n_snap_calls += snap_regions(r0, r1, epoch);
+        for (uint64_t r = r0; r <= r1 && nhot_snap < HOT_SNAP_CAP; r++)
+            if (!snap_untracked[r] && !mem_frozen(r << SNAP_SHIFT)) hot_snap[nhot_snap++] = (uint32_t)r;
     }
     int untracked = 0, changed = 0;
     for (uint64_t r = r0; r <= r1; r++) untracked |= snap_untracked[r];
@@ -1195,7 +1208,7 @@ enum { MR_BUDGET, MR_UNTRACKED, MR_OVERLAP, MR_ALLOC, MR_N };
 
 int vk_mirror_on;
 static int mirror_verify;
-static int mirror_gap = 2;             // pre-snap: hot pools at most this many 2 MiB regions apart share one query
+static int mirror_gap = 64;            // pre-snap: hot pools at most this many 2 MiB regions apart share one query
 static PoolRec **mlist;                // pool_lock: mirrored pools by import_lo
 static int nm, mcap;
 static uint32_t msub;                  // replay: number of the submission being recorded
@@ -1237,7 +1250,7 @@ static void mirror_mode(int discrete, uint32_t vendor) {
     vk_mirror_on = mode > 0;
     mirror_verify = mode == 2;
     const char *g = cfg_get("MTF_MIRROR_GAP");
-    mirror_gap = g && *g ? atoi(g) : 2;
+    mirror_gap = g && *g ? atoi(g) : 64;
     if (mirror_gap < 0) mirror_gap = 0;
     // Submissions a region stays unwritten before it is frozen. 60 rather than 300: in a fight 100 of the 257 MiB
     // queried a frame lay in regions idle for 30-299 submissions, and a thaw by a write costs about 60 us.
@@ -2123,6 +2136,12 @@ void vk_mem_mirror_begin(void) {
         run0 = a, run1 = b, have = 1;
     }
     if (have) q += snap_regions(run0, run1, mepoch);
+    // Pre-snap texture regions that missed the pre-snap in the previous epoch so walk() stays on gen_lock shared.
+    for (int i = 0; i < nhot_snap; i++) {
+        uint64_t r = hot_snap[i];
+        if (snap_at[r] != mepoch && !mem_frozen(r << SNAP_SHIFT)) q += snap_regions(r, r, mepoch);
+    }
+    nhot_snap = 0;
     mrep.presnap_bytes += ww_bytes - b0;
     if (freeze_idle) freeze_pass();
     plat_mutex_unlock(&gen_lock);
