@@ -319,3 +319,26 @@
   - `VERSION`, `README.md`, `docs/faq.md`: Bumped `VERSION` to `0.1.8`, added comprehensive English [docs/faq.md](faq.md) with a README hotlink.
 - **Verification:**
   - `python tools/check_content.py` (`exit 0`), `python -m installer.gui --selftest` (`exit 0`), `PyInstaller` `MTF-Recomp-Setup` + `tools/make_release.py --version 0.1.8 --windows-zip` (`MTF-Recomp-v0.1.8-Windows-x64.zip`), and clean-install user playtest validated.
+
+### 2026-11-28 — QA Phases 1–4 (External Tools), Write-Watch Optimization & WebRTC Streaming Fixes (`branch main`)
+- **Phase 1 (Static `br` Audit in WSL2):** Audited all `br` instructions in `main` (416), `sdk` (12,618), and `nro` (6,144); `0` suspicious `adr->br` patterns and `0` unresolved computed `br` in `main` (`27` in `sdk`, `29` in `nro` all properly guarded by `is_computed=True` `fb_<entry>` fallbacks).
+- **Phase 2 (Vulkan Validation / SyncVal / GPU-AV on 8,538-poll `session_all_menus.mtfrec`):**
+  - Fixed `PUSH_SKIP` descriptor layout mismatch (`vp_c3`, `44631e6`) + added 2 `attr 3 uint` shader answers (`18e193ccb83fa834`, `501fabdafb188156`).
+  - Fixed `VUID-VkGraphicsPipelineCreateInfo-layout-07988` (`fp_c4`, `fp_t_tcb_A`/`C`) and `VkLayer_khronos_validation.dll` `1.4.363` crash (`00007FFB2B35B0F1`) by using a lazy empty `VkDescriptorSetLayout` instead of `VK_NULL_HANDLE` in `half_layout()` ([runtime/vk_pipeline.c](../runtime/vk_pipeline.c), `47256f3`); verified `0` validation errors in `val_emptyset`.
+  - Diagnosed GPU-AV compute race (`805b4332ea11578a.spv`): `dmsh_xlate` lowers Maxwell `BAR.SYNC` + `EXIT` into `OpReturn` on non-participating lanes before `OpControlBarrier`.
+- **Phase 3 (UBSan in WSL2, `CMakeLists.txt` `MTF_SANITIZE=undefined`, `53d81cb`):**
+  - ASan shadow (`0x7fff8000..0x10007fff8000`) collides with the guest `0x7000000000` module window on Linux x86-64; ran full `MTF_GPU=null` + `llvmpipe` Vulkan sweeps under UBSan.
+  - Fixed 12x misaligned `ds_st`/`blend_st` (`uint64_t` -> `uint32_t` bitfields in [runtime/nvn_obj.h](../runtime/nvn_obj.h)), `ov_memcpy` zero-size `NULL` `memmove` ([runtime/nvn_api_core.c](../runtime/nvn_api_core.c)), `retire()` empty `memmove` ([runtime/vk_memory.c](../runtime/vk_memory.c)), and `wr_prune()` empty `qsort` ([runtime/vk_usnap.c](../runtime/vk_usnap.c)); re-verified **`0` UBSan errors**.
+- **Phase 4 (Frame-Pacing Profiling & Optimization, `023a87c`, `2c6a531`):**
+  - Added `MTF_PERF_SPIKE_MS` diagnostic breakdown in [runtime/gfx_stubs.c](../runtime/gfx_stubs.c).
+  - `MTF_GPU=null` completed the 8,538-poll session at `60.0–60.6 ticks/s` in `153 s` (`skips=26`), proving bottlenecks were Vulkan/memory-tracking stalls (`GetWriteWatch(WRITE_WATCH_FLAG_RESET)` spikes up to `39.9 ms` + `walk()` texture snapshot lock upgrades).
+  - Raised default `mirror_gap` `2 -> 64` (with safe single-region fallback on unmapped gaps in `snap_regions`) and pre-snapped `hot_snap` texture regions in `vk_mem_mirror_begin()` ([runtime/vk_memory.c](../runtime/vk_memory.c)):
+    - Elapsed replay time: `208 s` -> **`178 s`**
+    - Window `avg fps`: `55.09` (min `50.6`) -> **`58.21 fps`** (min **`56.6`**)
+    - `1% low` mean: `7.39` -> **`10.55 fps`** (`+43%`)
+    - Frames `> 20 ms`: `924` -> **`252`** (`-73%`), spikes `>= 40 ms`: `187` -> **`54`** (`-71%`), worst: `683.9` -> **`311.3 ms`**
+  - Diagnosed intermittent guest timing crash (`nro+0x121c45c`, `nro_0144.c` L27236-27237 reading `*(x27 + 0x10) + 0x24` with `NULL` pointer under extreme stalls).
+- **WebRTC / WebSocket / AV1 Browser Multiplayer Fixes (`22e304f`, `d08ec99`):**
+  - Fixed `webrtc_broadcast_media` delta detection (`data[1] == 0` -> `(data[1] & 1) == 0`) in [runtime/stream_webrtc.cpp](../runtime/stream_webrtc.cpp) so H.264/AV1 delta frames drop under DataChannel congestion.
+  - Fixed silent `closesocket` on WebSocket keyframe bursts in `ws_broadcast_bin` (50 ms `select()` + keyframe retry), updated AV1 WebCodecs string to `av01.0.08M.08` with automatic `VideoDecoder` error downgrade to H.264/VP8, cleared `dcIn = null` on WebRTC disconnect/failure, and widened `stream_host_remote_poll` grace window `500 ms -> 1500 ms` ([runtime/stream_host.c](../runtime/stream_host.c)).
+  - Handled `MF_E_NOTACCEPTING` in async Media Foundation encoders ([runtime/stream_hwenc.cpp](../runtime/stream_hwenc.cpp)).

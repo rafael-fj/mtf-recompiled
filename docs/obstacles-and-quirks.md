@@ -249,3 +249,21 @@ This catalog tracks every *Mario Tennis Fever*-specific technical obstacle using
 - **Symptom:** Remote players joining `F1 -> Multiplayer` on Firefox saw a large green padding border (video shrunk to top-left corner) when the stream negotiated AV1.
 - **Root Cause:** `stream_hwenc.cpp` did not set `MF_MT_DEFAULT_STRIDE` explicitly on NV12 input, and `stream_host.c` drew decoded `VideoFrame`s via `ctx.drawImage(f, 0, 0, c.width, c.height)` without cropping to `f.visibleRect`, while Firefox's WebCodecs AV1 decoder exposed padded coded dimensions.
 - **Fix:** Set `MF_MT_DEFAULT_STRIDE = w` in `runtime/stream_hwenc.cpp`, updated `drawImage` in `runtime/stream_host.c` to use `f.visibleRect`, and skipped `av1` on Firefox user-agents (`av1=false`) so Firefox uses **H.264** (with VP8 fallback) while **AV1** (`AV1 -> H.264 -> VP8`) remains enabled on Chromium-based browsers.
+
+## 33. `VUID-07988` & Validation Layer Crash on GPL `half_layout` (`VK_NULL_HANDLE`)
+- **Symptom:** Running with `MTF_VK_VALIDATION=1` and `MTF_GPL=1` emitted `VUID-VkGraphicsPipelineCreateInfo-layout-07988` (`fp_c4`, `fp_t_tcb_A`/`C`) and crashed inside `VkLayer_khronos_validation.dll` (`00007FFB2B35B0F1`), while `MTF_GPL=0` had `0` errors.
+- **Root Cause:** `VkLayer_khronos_validation` `1.4.363` mis-handles `VK_NULL_HANDLE` in `pSetLayouts[0]` for `VK_PIPELINE_LAYOUT_CREATE_INDEPENDENT_SETS_BIT_EXT` stage library layouts (`half_layout`).
+- **Fix:** Replaced `VK_NULL_HANDLE` with a lazily created empty `VkDescriptorSetLayout` (`bindingCount = 0`) in `half_layout()` (`runtime/vk_pipeline.c`, `47256f3`).
+- **Verification:** Re-ran `session_all_menus.mtfrec` with `MTF_VK_VALIDATION=1`: `0` validation errors.
+
+## 34. Write-Watch `GetWriteWatch` Frame-Time Spikes & Texture Snapshot Lock Upgrades
+- **Symptom:** Baseline 8,538-poll replay showed `924` frames >20 ms, `187` spikes ≥40 ms (up to `683.9 ms`), and `7.39 fps` 1% lows despite `MTF_GPU=null` running at `60.0 ticks/s` (`153 s`).
+- **Root Cause:** `vk_mem_mirror_begin()` coalesced buffer pools with `mirror_gap = 2`, causing multiple `GetWriteWatch(WRITE_WATCH_FLAG_RESET)` calls per submission (`10–40 ms` spikes), while texture regions not in `mlist` forced `gen_lock` exclusive upgrades inside `walk()`.
+- **Fix:** Raised `mirror_gap` default to `64` (with single-region fallback on unmapped gaps in `snap_regions`) and pre-snapped `hot_snap` texture regions in `vk_mem_mirror_begin()` (`runtime/vk_memory.c`, `2c6a531`).
+- **Verification:** Replay time dropped `208 s -> 178 s`, `avg fps` rose `55.09 -> 58.21`, `1% low` rose `7.39 -> 10.55 fps`, and frames >20 ms dropped by `73%` (`924 -> 252`).
+
+## 35. WebRTC AV1/H.264 DataChannel Flood, Keyframe Socket Drop & P2 Input Fallback
+- **Symptom:** Remote P2 over Cloudflare Tunnel (`mode=2 cf=1`) disconnected with `Player 2 disconnected from browser` after WebRTC UDP closed, `VideoDecoder` errored on AV1 (`async=1`), and host stopped receiving P2 browser inputs.
+- **Root Cause:** (a) `webrtc_broadcast_media` checked `data[1] == 0` instead of `(data[1] & 1) == 0`, never dropping AV1/H.264 delta frames on congestion; (b) `ws_broadcast_bin` skipped `select()` on keyframes and silently called `closesocket()` on `SO_SNDTIMEO`; (c) JS checked `av01.0.04M.08` without `colorSpace` and looped infinitely on decode errors; (d) `pc.onconnectionstatechange` never cleared `dcIn = null` on WebRTC failure, and `500 ms` remote input timeout dropped P2 inputs on tunnel hiccups.
+- **Fix:** Fixed delta-frame bitmask (`stream_webrtc.cpp`), added 50 ms `select()` keyframe backpressure + `av01.0.08M.08` + automatic codec downgrade + `dcIn = null` + `1500 ms` input grace window (`stream_host.c`), and handled `MF_E_NOTACCEPTING` in `stream_hwenc.cpp` (`22e304f`, `d08ec99`).
+- **Verification:** Clean `build/fork/cmake` build + `python tools/check_content.py` (`exit 0`).

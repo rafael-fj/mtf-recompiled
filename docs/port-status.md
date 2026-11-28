@@ -1,8 +1,8 @@
 # MTF Recomp — Port Status
 
-**Last updated:** 2026-11-25  
+**Last updated:** 2026-11-28  
 **Target game:** *Mario Tennis Fever* (Switch 2 / `Ounce`, Title ID `0400D4201C6EA000`, Update `1.1.1` / `v327680`)  
-**Current phase:** `v0.1.8` (Optimization Sprint) — Playable PC Port (NVIDIA 96% / AMD 86%) + Async GPL on NVIDIA + Non-Blocking Prewarm (`3s` budget) + `MultiViewport` Shadow Cascades (`SHADOW_SCALE >= 2`) + Hardware-Aware `Recommended` Preset + Frame-Time Telemetry (`MTF_PERF_LOG=1`). See [status-details.md](status-details.md) for the full percentage breakdown.
+**Current phase:** `v1.0.1` + QA/Perf/Streaming Hardening — Deterministic 8,538-poll replay verified (`0` Vulkan validation errors, `0` UBSan runtime errors, `58.21 avg fps` / `-73%` frames >20 ms via write-watch pre-snap coalescing), plus WebRTC/WebSocket/AV1 multiplayer fixes. See [status-details.md](status-details.md) for the full percentage breakdown.
 
 ## Module Status
 
