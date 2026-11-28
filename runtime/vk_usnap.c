@@ -238,7 +238,7 @@ static void wr_prune(void) {
     int n = 0;
     for (int i = 0; i < U.nwr; i++)
         if (U.wr[i].fence > done) U.wr[n++] = U.wr[i];
-    qsort(U.wr, (size_t)n, sizeof *U.wr, wr_by_lo);
+    if (n > 1) qsort(U.wr, (size_t)n, sizeof *U.wr, wr_by_lo);
     int m = 0;
     for (int i = 0; i < n; i++) {
         if (m && U.wr[i].lo <= U.wr[m - 1].hi) {

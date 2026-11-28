@@ -15,6 +15,7 @@ set(MTF_GENERATED_DIRS "" CACHE STRING "Semicolon-separated generator output dir
 set(MTF_GLUE_DIR "${PROJECT_SOURCE_DIR}/build/generated/glue" CACHE PATH "Directory written by recomp/glue.py")
 set(MTF_CPU_LEVEL "v3" CACHE STRING "x86-64 level: v3 (AVX2/FMA, default) or v2 (SSE4.2)")
 set(MTF_GEN_OPT "-O2" CACHE STRING "Optimisation level of the lifted game code")
+set(MTF_SANITIZE "" CACHE STRING "Comma-separated sanitizers for the host runtime (e.g. address,undefined)")
 set(MTF_OUTPUT_DIR "${PROJECT_SOURCE_DIR}/build/bin" CACHE PATH "Where mtf-recomp.exe and its DLLs go (the installer uses its own)")
 
 if(NOT MTF_GENERATED_DIRS)
@@ -198,6 +199,10 @@ target_include_directories(mtf-recomp PRIVATE
 target_include_directories(mtf-recomp SYSTEM PRIVATE "${MTF_DEPS_DIR}/include" "${MTF_DEPS_DIR}/include/vma")
 target_link_directories(mtf-recomp PRIVATE "${MTF_DEPS_DIR}/lib")
 target_compile_options(mtf-recomp PRIVATE $<$<COMPILE_LANGUAGE:C,CXX>:-O2 -g -Wall -fno-strict-aliasing ${MTF_MARCH}>)
+if(MTF_SANITIZE)
+    target_compile_options(mtf-recomp PRIVATE $<$<COMPILE_LANGUAGE:C,CXX>:-fsanitize=${MTF_SANITIZE} -fno-omit-frame-pointer>)
+    target_link_options(mtf-recomp PRIVATE -fsanitize=${MTF_SANITIZE})
+endif()
 set_source_files_properties(runtime/vk_vma.cpp PROPERTIES COMPILE_OPTIONS "-std=c++17;-Wno-nullability-completeness")
 set_source_files_properties(runtime/ui/menu.cpp runtime/ui/option_rows.cpp PROPERTIES COMPILE_OPTIONS "-std=c++20")
 if(WIN32)

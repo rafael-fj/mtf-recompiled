@@ -59,7 +59,7 @@ void nvn_guest_written(uint64_t addr, uint64_t size) {
 static void ov_memcpy(Cpu *c) {
     uint64_t dst = arg_x(c, 0), src = arg_x(c, 1), n = arg_x(c, 2);
     if (n >= 1024) gfx_backend()->guest_read(src, n);
-    memmove((void *)(uintptr_t)dst, (const void *)(uintptr_t)src, n);
+    if (n) memmove((void *)(uintptr_t)dst, (const void *)(uintptr_t)src, n);
     ret_x(c, dst);
 }
 HOST_OVERRIDE("memcpy", ov_memcpy);

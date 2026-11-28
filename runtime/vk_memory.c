@@ -2465,7 +2465,7 @@ static void retire(VkCtx *c, int wait_all) {
         if (nspare == cap_spare) grow((void **)&spare, &cap_spare, sizeof *spare);
         spare[nspare++] = *b;
     }
-    memmove(inflight, inflight + k, (size_t)(ninflight - k) * sizeof *inflight);
+    if (k && k < ninflight) memmove(inflight, inflight + k, (size_t)(ninflight - k) * sizeof *inflight);
     ninflight -= k;
 }
 
