@@ -159,12 +159,15 @@ void ov_dynamic_fps_acquire(Cpu *c) {
 // ---- performance counters: the render thread's waits per frame, the event counts and the GPU's busy time, taken while
 // the full performance overlay shows them (perf_set_overlay) or MTF_TRACE=perf asks. Off, perf_begin answers 0, perf_end
 // and perf_replay return at once and perf_count is a load and a branch.
-static int perf_overlay, perf_on;   // the overlay's mode (0 off, 1 fps, 2 full); wait times and counts are taken
+static int perf_overlay, perf_on, perf_spike_ms;   // the overlay's mode (0 off, 1 fps, 2 full); wait times and counts are taken
 static volatile uint32_t perf_render_tid, perf_replay_tid;
 static uint64_t perf_frame_ns[PERF_N];   // this frame's waits of the render or replay thread
 static volatile int64_t perf_frame_replay_ns, perf_counts[PERF_CNT_N], perf_gpu_total;
 
-static int perf_wanted(void) { return (rt_trace & RT_TRACE_PERF) != 0 || __atomic_load_n(&perf_overlay, __ATOMIC_RELAXED) == 2; }
+static int perf_wanted(void) {
+    return (rt_trace & RT_TRACE_PERF) != 0 || __atomic_load_n(&perf_overlay, __ATOMIC_RELAXED) == 2 ||
+           __atomic_load_n(&perf_spike_ms, __ATOMIC_RELAXED) > 0;
+}
 
 void perf_set_overlay(int mode) {
     __atomic_store_n(&perf_overlay, mode, __ATOMIC_RELAXED);
@@ -295,6 +298,23 @@ void perf_flip(void) {
             plog.tot_pwait0 = plog.win_pwait0 = (uint64_t)__atomic_load_n(&perf_pipe_waits_16ms, __ATOMIC_RELAXED);
             atexit(perf_log_flush);
         }
+        const char *sp = cfg_get("MTF_PERF_SPIKE_MS");
+        if (sp && *sp) {
+            int ms = atoi(sp);
+            if (ms > 0) {
+                __atomic_store_n(&perf_spike_ms, ms, __ATOMIC_RELAXED);
+                __atomic_store_n(&perf_on, 1, __ATOMIC_RELAXED);
+            }
+        }
+    }
+    uint64_t rpl = __atomic_load_n(&perf_on, __ATOMIC_RELAXED)
+                       ? (uint64_t)__atomic_exchange_n(&perf_frame_replay_ns, 0, __ATOMIC_RELAXED)
+                       : 0;
+    if (perf_spike_ms > 0 && last && (now - last) >= (uint64_t)perf_spike_ms * 1000000ull) {
+        rt_log("perf_spike: frame %llu total %.1f ms | replay %.1f pace %.1f fence %.1f drain %.1f pipe %.1f xlate %.1f tex %.1f astc %.1f",
+               (unsigned long long)shown, (now - last) / 1e6, rpl / 1e6, perf_frame_ns[PERF_PACE] / 1e6,
+               perf_frame_ns[PERF_FENCE] / 1e6, perf_frame_ns[PERF_DRAIN] / 1e6, perf_frame_ns[PERF_PIPE] / 1e6,
+               perf_frame_ns[PERF_XLATE] / 1e6, perf_frame_ns[PERF_TEX] / 1e6, perf_frame_ns[PERF_ASTC] / 1e6);
     }
     if (plog.on && last) {
         uint64_t d = now - last;
@@ -320,7 +340,7 @@ void perf_flip(void) {
     }
     if (__atomic_load_n(&perf_overlay, __ATOMIC_RELAXED))              // the overlay's only cost while it is off
         perfmon_frame(now, last ? now - last : 0, perf_frame_ns,
-                      (uint64_t)__atomic_exchange_n(&perf_frame_replay_ns, 0, __ATOMIC_RELAXED),
+                      perf_spike_ms > 0 ? rpl : (uint64_t)__atomic_exchange_n(&perf_frame_replay_ns, 0, __ATOMIC_RELAXED),
                       __atomic_load_n(&perf_counts[PERF_CNT_TEX_UP], __ATOMIC_RELAXED));
     if (__atomic_load_n(&perf_on, __ATOMIC_RELAXED)) memset(perf_frame_ns, 0, sizeof perf_frame_ns);
     last = now;
