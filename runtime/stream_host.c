@@ -410,8 +410,8 @@ static const char k_html_page[] =
 "pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});"
 "pc.onicecandidate=e=>{if(e.candidate&&ws&&ws.readyState===1)"
 "ws.send(JSON.stringify({type:'candidate',candidate:e.candidate.candidate,mid:e.candidate.sdpMid||'0'}));};"
-"pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'||pc.connectionState==='closed')"
-"{statEl.textContent='Connected as Player '+pnum+' (WebSocket fallback)';}};"
+"pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'||pc.connectionState==='closed'||pc.connectionState==='disconnected')"
+"{dcIn=null;statEl.textContent='Connected as Player '+pnum+' (WebSocket fallback)';}};"
 "pc.ondatachannel=ev=>{"
 "const dc=ev.channel;dc.binaryType='arraybuffer';"
 "if(dc.label==='media'){dc.onopen=()=>{statEl.textContent='Connected as Player '+pnum+' (WebRTC UDP)';};"
@@ -1378,7 +1378,7 @@ int stream_host_remote_poll(int player, uint64_t *buttons, int32_t *lx, int32_t 
     plat_mutex_lock(&g_lock);
     int act = g_clients[slot].active;
     if (act) {
-        if (plat_now_ns() - g_clients[slot].last_input_ns < 500000000ull) {
+        if (plat_now_ns() - g_clients[slot].last_input_ns < 1500000000ull) {
             *buttons = g_clients[slot].buttons;
             *lx = g_clients[slot].lx;
             *ly = g_clients[slot].ly;
