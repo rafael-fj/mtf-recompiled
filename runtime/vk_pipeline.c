@@ -2416,9 +2416,16 @@ typedef struct { uint32_t kind; uint8_t n_color, samples, a2c, logic_op, blend_e
 static uint64_t qpc(void) { return plat_now_ns(); }
 static double ms_since(uint64_t t0) { return (double)(qpc() - t0) / 1e6; }
 
+static VkDescriptorSetLayout empty_set;
+// Half-layout for GPL stage libraries ({set 0, empty} or {empty, set 1}); an empty descriptor set avoids a
+// VkLayer_khronos_validation 1.4.363 crash and false VUID-VkGraphicsPipelineCreateInfo-layout-07988 on VK_NULL_HANDLE.
 static VkPipelineLayout half_layout(Layout *l, int h) {
     if (l->half[h]) return l->half[h];
-    VkDescriptorSetLayout sets[2] = {h ? VK_NULL_HANDLE : l->set, h ? l->set1 : VK_NULL_HANDLE};
+    if (!empty_set) {
+        VkDescriptorSetLayoutCreateInfo ei = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        vkCreateDescriptorSetLayout(P.device, &ei, NULL, &empty_set);
+    }
+    VkDescriptorSetLayout sets[2] = {h ? empty_set : l->set, h ? l->set1 : empty_set};
     VkPipelineLayoutCreateInfo pi = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
                                      .flags = VK_PIPELINE_LAYOUT_CREATE_INDEPENDENT_SETS_BIT_EXT, .setLayoutCount = 2,
                                      .pSetLayouts = sets};
