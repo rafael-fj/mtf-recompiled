@@ -604,6 +604,79 @@ void input_poll(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx, int32_
     for (int i = 0; i < 4; i++) moved |= a[i] > STICK_ACTIVE || a[i] < -STICK_ACTIVE;
     if (moved) __atomic_store_n(&last_active_ns, plat_now_ns(), __ATOMIC_RELAXED);
     if (open || held_off) b = 0, memset(a, 0, sizeof a);
+    // MTF_INPUT_RECORD / MTF_INPUT_REPLAY: deterministic poll-indexed input capture & playback
+    {
+        static int rr_init = 0;
+        static FILE *rec_fp = NULL;
+        static uint64_t poll_idx = 0;
+        static uint64_t rec_prev_b = 0;
+        static int32_t rec_prev_a[4] = {0};
+        typedef struct { uint64_t poll, b; int32_t a[4]; } RecEv;
+        static RecEv *rep_evs = NULL;
+        static size_t rep_n = 0, rep_cur = 0;
+        static uint64_t rep_b = 0;
+        static int32_t rep_a[4] = {0};
+        static int rep_done = 0;
+        if (!rr_init) {
+            rr_init = 1;
+            const char *rp = cfg_get("MTF_INPUT_REPLAY");
+            if (rp && *rp) {
+                FILE *f = fopen(rp, "rb");
+                if (f) {
+                    char line[256];
+                    size_t cap = 0;
+                    while (fgets(line, sizeof line, f)) {
+                        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
+                        RecEv ev;
+                        if (sscanf(line, "%llu %llx %d %d %d %d", (unsigned long long *)&ev.poll,
+                                   (unsigned long long *)&ev.b, &ev.a[0], &ev.a[1], &ev.a[2], &ev.a[3]) == 6) {
+                            if (rep_n == cap) {
+                                cap = cap ? cap * 2 : 1024;
+                                rep_evs = realloc(rep_evs, cap * sizeof *rep_evs);
+                            }
+                            rep_evs[rep_n++] = ev;
+                        }
+                    }
+                    fclose(f);
+                    rt_log("input: replaying %zu events from %s (MTF_INPUT_REPLAY)", rep_n, rp);
+                } else {
+                    rt_log("input: MTF_INPUT_REPLAY failed to open %s", rp);
+                }
+            }
+            const char *wp = cfg_get("MTF_INPUT_RECORD");
+            if (wp && *wp) {
+                rec_fp = fopen(wp, "wb");
+                if (rec_fp) {
+                    fprintf(rec_fp, "# mtf-input-v1\n");
+                    fflush(rec_fp);
+                    rt_log("input: recording session to %s (MTF_INPUT_RECORD)", wp);
+                } else {
+                    rt_log("input: MTF_INPUT_RECORD failed to open %s", wp);
+                }
+            }
+        }
+        if (rep_evs) {
+            while (rep_cur < rep_n && rep_evs[rep_cur].poll <= poll_idx) {
+                rep_b = rep_evs[rep_cur].b;
+                memcpy(rep_a, rep_evs[rep_cur].a, sizeof rep_a);
+                rep_cur++;
+            }
+            if (!rep_done && rep_cur == rep_n && rep_n > 0 && poll_idx > rep_evs[rep_n - 1].poll + 60) {
+                rep_done = 1;
+                rt_log("input: replay finished at poll %llu", (unsigned long long)poll_idx);
+            }
+            b = rep_b;
+            memcpy(a, rep_a, sizeof a);
+        }
+        if (rec_fp && (b != rec_prev_b || memcmp(a, rec_prev_a, sizeof a) != 0)) {
+            rec_prev_b = b;
+            memcpy(rec_prev_a, a, sizeof a);
+            fprintf(rec_fp, "%llu %llx %d %d %d %d\n", (unsigned long long)poll_idx,
+                    (unsigned long long)b, a[0], a[1], a[2], a[3]);
+            fflush(rec_fp);
+        }
+        poll_idx++;
+    }
     *buttons = b;
     *lx = a[0], *ly = a[1], *rx = a[2], *ry = a[3];
 }

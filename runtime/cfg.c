@@ -214,6 +214,7 @@ static CfgMeta metas[] = {
     {"CHEAT_UNLOCK_MODES", NULL, "0|1", LIVE},
     // diagnostics
     {"TRACE", "", NULL, RESTART},
+    {"INPUT_RECORD", "", NULL, RESTART}, {"INPUT_REPLAY", "", NULL, RESTART},
 };
 
 static const char *table_default(const char *bare) {
